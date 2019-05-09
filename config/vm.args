@@ -1,0 +1,8 @@
+
+-setcookie myapp_cookie
+
++K true
++A30
+
+-s lager 
+-s gen_amqp_dist

@@ -1,0 +1,20 @@
+{"1.1.0",
+[{<<"amqp_client">>,{pkg,<<"amqp_client">>,<<"3.7.9">>},0},
+ {<<"goldrush">>,{pkg,<<"goldrush">>,<<"0.1.9">>},3},
+ {<<"jsx">>,{pkg,<<"jsx">>,<<"2.9.0">>},2},
+ {<<"lager">>,{pkg,<<"lager">>,<<"3.6.5">>},2},
+ {<<"rabbit_common">>,{pkg,<<"rabbit_common">>,<<"3.7.9">>},1},
+ {<<"ranch">>,{pkg,<<"ranch">>,<<"1.6.2">>},2},
+ {<<"ranch_proxy_protocol">>,{pkg,<<"ranch_proxy_protocol">>,<<"2.1.1">>},2},
+ {<<"recon">>,{pkg,<<"recon">>,<<"2.3.6">>},2}]}.
+[
+{pkg_hash,[
+ {<<"amqp_client">>, <<"EBEF998500C31D4954E882868806258A9CEBF01DD6C76804B1A2EFDB454753FC">>},
+ {<<"goldrush">>, <<"F06E5D5F1277DA5C413E84D5A2924174182FB108DABB39D5EC548B27424CD106">>},
+ {<<"jsx">>, <<"D2F6E5F069C00266CAD52FB15D87C428579EA4D7D73A33669E12679E203329DD">>},
+ {<<"lager">>, <<"831910109F3FCB503DEBF658CA0538836B348C58BFBF349A6D48228096CE9040">>},
+ {<<"rabbit_common">>, <<"542D2EB8EF8F76E5346B30665604D8D63B8D5CF47D1878243CEC44D1642C4435">>},
+ {<<"ranch">>, <<"6DB93C78F411EE033DBB18BA8234C5574883ACB9A75AF0FB90A9B82EA46AFA00">>},
+ {<<"ranch_proxy_protocol">>, <<"3C4723327166D2D63C0405F4914E2E471C6DE362CC844E9B203AF5763E7C9D25">>},
+ {<<"recon">>, <<"2BCAD0CF621FB277CABBB6413159CD3AA30265C2DEE42C968697988B30108604">>}]}
+].
