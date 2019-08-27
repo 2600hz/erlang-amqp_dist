@@ -27,6 +27,7 @@
 
 
 -define(CONNECTION_TIMEOUT, 10000).
+-define(HEARTBEAT_PERIOD, 3500).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [undefined], []).
@@ -184,7 +185,7 @@ handle_info({'heartbeat', Ref, Uri}, #{connections := Connections} = State) ->
         #{heartbeat := Ref}=Broker ->
             publish(Broker),
             Reference = erlang:make_ref(),
-            _ = erlang:send_after(1500, self(), {'heartbeat', Reference, Uri}),
+            _ = erlang:send_after(?HEARTBEAT_PERIOD, self(), {'heartbeat', Reference, Uri}),
             {noreply, State#{connections => Connections#{Uri => Broker#{heartbeat => Reference}}}}
     end;
 
@@ -197,6 +198,9 @@ handle_info({#'basic.consume'{}, _Pid}, State) ->
 
 %% @private
 handle_info(#'basic.consume_ok'{}, State) ->
+    {noreply, State};
+
+handle_info({'DOWN', _Ref, process, _Pid, 'shutdown'}, State) ->
     {noreply, State};
 
 handle_info({'DOWN', Ref, process, _Pid, _Reason}, #{refs := Refs, tags := Tags} = State) ->
@@ -243,6 +247,8 @@ handle_info(_Info, State) ->
     lager:info("UNHANDLED MSG : ~p => ~p", [_Info, State]),
     {noreply, State}.
 
+terminate('shutdown', _State) ->
+    ok;
 terminate(_Reason, #{connections := Connections}) ->
     catch(stop_connections(Connections)),
     ok.

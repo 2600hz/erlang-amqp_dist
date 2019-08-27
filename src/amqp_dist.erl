@@ -23,7 +23,7 @@
 
 %% api
 
--export([add_broker/1]).
+-export([add_broker/1, add_brokers/1]).
 -export([nodes/0]).
 -export([is_up/1]). 
   
@@ -51,6 +51,10 @@
                      }).
 
 %% API
+
+add_brokers(Uris) ->
+    [add_broker(Uri)|| Uri <- Uris],
+    'ok'.
 
 add_broker(Uri) ->
     amqp_dist_acceptor:add_broker(Uri).
@@ -91,7 +95,6 @@ accept(Listen) ->
      spawn_opt(?MODULE, start_accept, [self(), Listen], [link, {priority, max}]).
 
 start_accept(Kernel, Listen) ->
-%    amqp_dist_acceptor:acceptor(Listen#fake_socket.mypid, self()),
     amqp_dist_acceptor:acceptor(self()),
     accept_loop(Kernel, Listen).
 
@@ -173,7 +176,6 @@ do_setup(Kernel, Node, Type, MyNode, _LongOrShortNames, SetupTime) ->
 %%
 close(Listen) ->
     lager:info("CLOSE ~p", [Listen]).
-%%     amqp_dist_acceptor:stop(Listen#fake_socket.mypid).
 
 
 split_node([Chr|T], Chr, Ack) -> [lists:reverse(Ack)|split_node(T, Chr, [])];
