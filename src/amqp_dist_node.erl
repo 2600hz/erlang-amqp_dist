@@ -62,6 +62,8 @@ init([Connection, Node, Queue]) ->
 
 %% Closes the channel this gen_server instance started
 %% @private
+terminate(shutdown, _State) ->
+    ok;
 terminate(_Reason, State) ->
     catch(stop_node(State)),
     ok.
@@ -188,9 +190,15 @@ handle_info({#'basic.deliver'{}
     end,
     {noreply, State#{recv => Recv + byte_size(Payload)}};
 
+handle_info({'DOWN', _Ref, process, _Pid, 'shutdown'}, State) ->
+    {noreply, State};
+
 handle_info({'DOWN', ControllerRef, process, Controller, _Info}
            ,#{controller := Controller, controller_ref := ControllerRef} = State) ->
     {stop, normal, State};
+
+handle_info({'EXIT', _Pid, 'shutdown'}, State) ->
+    {noreply, State};
 
 handle_info({'EXIT', _Pid, _Reason}, State) ->
     {stop, normal, State};
@@ -292,7 +300,10 @@ start_amqp_fold(Fun, State) ->
 open_channel(State = #{connection := Connection}) ->
     {ok, Channel} = amqp_connection:open_channel(
                         Connection, {amqp_direct_consumer, [self()]}),
-    State#{channel => Channel}.
+    State#{channel => Channel
+          ,channel_ref => erlang:monitor(process, Channel)
+          ,connection_ref => erlang:monitor(process, Connection)
+          }.
 
 declare_queue(State = #{channel := Channel}) ->
     #'queue.declare_ok'{queue = Q} =

@@ -96,7 +96,7 @@ handle_call({connection, Node}, _From, #{nodes := Nodes, connections := Connecti
             {reply, {error, not_available}, State};
         Map ->
             {Uri, #{queue := Queue}} = best_node(Map),
-            #{connection := Pid} = maps:get(Uri, Connections),            
+            #{connection := Pid} = maps:get(Uri, Connections),
             {reply, {ok, {Pid, Queue}}, State}
     end;
 
@@ -200,6 +200,25 @@ handle_info({#'basic.consume'{}, _Pid}, State) ->
 handle_info(#'basic.consume_ok'{}, State) ->
     {noreply, State};
 
+handle_info(#'basic.cancel'{consumer_tag = Tag, nowait = _NoWait}, #{refs := Refs, tags := Tags} = State) ->
+    case maps:get(Tag, Tags, undefined) of
+        undefined -> {noreply, State};
+        Uri ->
+            #{connections := #{Uri := Broker} = Connections} = State,
+            #{consumer_tag := Tag
+             ,connection_ref := ConnectionRef
+             ,channel_ref := ChannelRef
+             ,params := Params
+             } = Broker,
+            catch(stop_amqp(Broker)),
+            erlang:send_after(5000, self(), {reconnect, Uri, Params}),
+            {noreply, State#{connections => maps:without([Uri], Connections)
+                            ,refs => maps:without([ConnectionRef, ChannelRef], Refs)
+                            ,tags => maps:without([Tag], Tags)
+                            }
+            }
+    end;
+
 handle_info({'DOWN', _Ref, process, _Pid, 'shutdown'}, State) ->
     {noreply, State};
 
@@ -221,6 +240,12 @@ handle_info({'DOWN', Ref, process, _Pid, _Reason}, #{refs := Refs, tags := Tags}
                             }
             }
     end;
+
+handle_info({'EXIT', _Pid, 'shutdown'}, State) ->
+    {noreply, State};
+
+handle_info({'EXIT', _Pid, _Reason}, State) ->
+    {stop, normal, State};
 
 handle_info({reconnect, Uri, Params}, State) ->
     start_broker(Uri, Params, State),
@@ -305,7 +330,12 @@ open_channel(Broker = #{connection := Connection, server := Pid}) ->
     {ok, Channel} = amqp_connection:open_channel(
                         Connection, {amqp_direct_consumer, [Pid]}),
     Ref = erlang:monitor(process, Channel),
-    Broker#{channel => Channel, channel_ref => Ref}.
+    Ref2 = erlang:monitor(process, Connection),
+    
+    Broker#{channel => Channel
+           ,channel_ref => Ref
+           ,connection_ref => Ref2
+           }.
 
 set_exchange(Broker) ->
     Broker#{exchange => <<"amq.headers">>}.
