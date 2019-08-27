@@ -62,11 +62,8 @@ init([Connection, Node, Queue]) ->
 
 %% Closes the channel this gen_server instance started
 %% @private
-terminate(_Reason, #{channel := Channel, consumer_tag := ConsumerTag}) ->
-    #'basic.cancel_ok'{consumer_tag = ConsumerTag} =
-        amqp_channel:call(Channel, #'basic.cancel'{consumer_tag = ConsumerTag}),
-    amqp_channel:unregister_return_handler(Channel),
-    amqp_channel:close(Channel),
+terminate(_Reason, State) ->
+    catch(stop_node(State)),
     ok.
 
 %% Handle the application initiated stop by just stopping this gen server
@@ -310,3 +307,9 @@ consume_queue(State = #{channel := Channel, queue := Q}) ->
 
 return_handler(#{channel := Channel}) ->
     amqp_channel:register_return_handler(Channel, self()).
+
+stop_node(#{channel := Channel, consumer_tag := ConsumerTag}) ->
+    #'basic.cancel_ok'{consumer_tag = ConsumerTag} =
+        amqp_channel:call(Channel, #'basic.cancel'{consumer_tag = ConsumerTag}),
+    amqp_channel:unregister_return_handler(Channel),
+    amqp_channel:close(Channel).
