@@ -220,7 +220,10 @@ handle_info(#'basic.cancel'{consumer_tag = Tag, nowait = _NoWait}, #{refs := Ref
     end;
 
 handle_info({'DOWN', _Ref, process, _Pid, 'shutdown'}, State) ->
-    {noreply, State};
+    {noreply, State#{hearbeat => false}};
+
+handle_info({'DOWN', _Ref, process, _Pid, 'killed'}, State) ->
+    {noreply, State#{hearbeat => false}};
 
 handle_info({'DOWN', Ref, process, _Pid, _Reason}, #{refs := Refs, tags := Tags} = State) ->
     case maps:get(Ref, Refs, undefined) of
@@ -232,7 +235,7 @@ handle_info({'DOWN', Ref, process, _Pid, _Reason}, #{refs := Refs, tags := Tags}
              ,channel_ref := ChannelRef
              ,params := Params
              } = Broker,
-            catch(stop_amqp(Broker)),
+            catch(stop_amqp(Broker#{no_cancel => true})),
             erlang:send_after(5000, self(), {reconnect, Uri, Params}),
             {noreply, State#{connections => maps:without([Uri], Connections)
                             ,refs => maps:without([ConnectionRef, ChannelRef], Refs)
@@ -242,10 +245,13 @@ handle_info({'DOWN', Ref, process, _Pid, _Reason}, #{refs := Refs, tags := Tags}
     end;
 
 handle_info({'EXIT', _Pid, 'shutdown'}, State) ->
-    {noreply, State};
+    {noreply, State#{hearbeat => false}};
+
+handle_info({'EXIT', _Pid, 'killed'}, State) ->
+    {noreply, State#{hearbeat => false}};
 
 handle_info({'EXIT', _Pid, _Reason}, State) ->
-    {stop, normal, State};
+    {stop, normal, State#{state => error}};
 
 handle_info({reconnect, Uri, Params}, State) ->
     start_broker(Uri, Params, State),
@@ -272,9 +278,9 @@ handle_info(_Info, State) ->
     lager:info("UNHANDLED MSG : ~p => ~p", [_Info, State]),
     {noreply, State}.
 
-terminate('shutdown', _State) ->
-    ok;
-terminate(_Reason, #{connections := Connections}) ->
+terminate('shutdown', _State) -> ok;
+terminate('killed', _State) -> ok;
+terminate(_Reason, #{connections := Connections}=_State) ->
     catch(stop_connections(Connections)),
     ok.
 
@@ -437,6 +443,8 @@ stop_amqp(Broker) ->
                ],
     lists:foldl(fun broker_fold2/2, Broker, Routines).
     
+cancel_consume(Broker = #{no_cancel := true}) ->
+    maps:without([consumer_tag, no_cancel], Broker);
 cancel_consume(Broker = #{channel := Channel
                          ,consumer_tag := ConsumerTag
                          }) ->
@@ -455,11 +463,11 @@ unregister_handler(#{channel := Channel}) ->
     amqp_channel:unregister_return_handler(Channel).
 
 close_connection(Broker = #{connection := Connection}) ->
-    amqp_connection:close(Connection),
+    catch(amqp_connection:close(Connection)),
     maps:without([connection], Broker).
 
 close_channel(Broker = #{channel := Channel}) ->
-    amqp_channel:close(Channel),
+    catch(amqp_channel:close(Channel)),
     maps:without([channel], Broker).
 
 -spec decode(kz_term:api_binary()) -> term().
@@ -467,6 +475,7 @@ decode('undefined') -> 'undefined';
 decode(Bin) ->
     binary_to_term(base64:decode(Bin)).
 
+publish(#{heartbeat := false}) -> 'ok';
 publish(#{state := error}) ->
     lager:info("not publishing due to connection error");
 publish(#{channel := Channel, queue := Q, exchange := X, node_started_at := Start}) ->

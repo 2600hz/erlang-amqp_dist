@@ -1,4 +1,3 @@
-
 -include_lib("amqp_client/include/amqp_client.hrl").
 -include_lib("kernel/include/logger.hrl").
 -include_lib("kernel/include/net_address.hrl").

@@ -1,7 +1,7 @@
 {application,amqp_dist,
- [{applications,[]},
-  {description,"amqp protocol distribution"},
-  {env,[]},
-  {modules,[]},
-  {registered,[]},
-  {vsn,"5.0.0"}]}.
+             [{applications,[kernel,stdlib,lager,amqp_client]},
+              {description,"amqp protocol distribution"},
+              {env,[]},
+              {modules,[]},
+              {registered,[]},
+              {vsn,"5.0.0"}]}.

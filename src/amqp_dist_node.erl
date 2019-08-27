@@ -35,7 +35,7 @@ start(Connection, Node, Queue, Action) ->
     end.
             
 
-
+publish(_Data, #{heartbeat := false}) -> {0, 0};
 publish(Data, #{channel := Channel, queue := Q, exchange := X, remote_queue := RK}) ->
     Props = #'P_basic'{correlation_id = atom_to_binary(node(), utf8), reply_to = Q, timestamp = os:system_time(microsecond)},
     Publish = #'basic.publish'{exchange = X, routing_key = RK, mandatory = true},
@@ -62,8 +62,8 @@ init([Connection, Node, Queue]) ->
 
 %% Closes the channel this gen_server instance started
 %% @private
-terminate(shutdown, _State) ->
-    ok;
+terminate(shutdown, _State) -> ok;
+terminate(killed, _State) -> ok;
 terminate(_Reason, State) ->
     catch(stop_node(State)),
     ok.
@@ -191,14 +191,20 @@ handle_info({#'basic.deliver'{}
     {noreply, State#{recv => Recv + byte_size(Payload)}};
 
 handle_info({'DOWN', _Ref, process, _Pid, 'shutdown'}, State) ->
-    {noreply, State};
+    {noreply, State#{heartbeat => false}};
+
+handle_info({'DOWN', _Ref, process, _Pid, 'killed'}, State) ->
+    {noreply, State#{heartbeat => false}};
 
 handle_info({'DOWN', ControllerRef, process, Controller, _Info}
            ,#{controller := Controller, controller_ref := ControllerRef} = State) ->
     {stop, normal, State};
 
 handle_info({'EXIT', _Pid, 'shutdown'}, State) ->
-    {noreply, State};
+    {noreply, State#{heartbeat => false}};
+
+handle_info({'EXIT', _Pid, 'killed'}, State) ->
+    {noreply, State#{heartbeat => false}};
 
 handle_info({'EXIT', _Pid, _Reason}, State) ->
     {stop, normal, State};
@@ -240,7 +246,6 @@ recv(Pid, Length, Collected, Acc, Timeout) ->
             recv(Pid, Length, length(LData), LData, decr_timeout(Timeout));
        {ok, Data} when is_list(Data) ->
             LData = Acc ++ Data,
-            lager:info("LDATA => ~p", [LData]),
             recv(Pid, Length, length(LData), LData, decr_timeout(Timeout));
         {error, empty} ->
             timer:sleep(25),
@@ -274,9 +279,6 @@ controller(Pid, Controller) ->
 
 receiver(Pid, Receiver) ->
     gen_server:call(Pid, {receiver, Receiver}).
-
-%% supervisor(Pid, Supervisor) ->
-%%     gen_server:call(Pid, {supervisor, Supervisor}).
 
 send_pending(Receiver, {{value, Value}, Queue}) ->
      Receiver ! {data, self(), Value},
@@ -323,4 +325,4 @@ stop_node(#{channel := Channel, consumer_tag := ConsumerTag}) ->
     #'basic.cancel_ok'{consumer_tag = ConsumerTag} =
         amqp_channel:call(Channel, #'basic.cancel'{consumer_tag = ConsumerTag}),
     amqp_channel:unregister_return_handler(Channel),
-    amqp_channel:close(Channel).
+    catch(amqp_channel:close(Channel)).
