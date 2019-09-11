@@ -92,7 +92,7 @@ listen(Name) ->
 %% Accepts new connection attempts from other Erlang nodes.
 %% ------------------------------------------------------------
 accept(Listen) ->
-     spawn_opt(?MODULE, start_accept, [self(), Listen], [link, {priority, max}]).
+    spawn_opt(?MODULE, start_accept, [self(), Listen], [link, {priority, max}]).
 
 start_accept(Kernel, Listen) ->
     amqp_dist_acceptor:acceptor(self()),

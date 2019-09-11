@@ -186,7 +186,8 @@ handle_info({'heartbeat', Ref, Uri}, #{connections := Connections} = State) ->
             publish(Broker),
             Reference = erlang:make_ref(),
             _ = erlang:send_after(?HEARTBEAT_PERIOD, self(), {'heartbeat', Reference, Uri}),
-            {noreply, State#{connections => Connections#{Uri => Broker#{heartbeat => Reference}}}}
+            {noreply, State#{connections => Connections#{Uri => Broker#{heartbeat => Reference}}}};
+        _Other -> {noreply, State}
     end;
 
 handle_info('start', State) ->
