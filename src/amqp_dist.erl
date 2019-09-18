@@ -77,16 +77,24 @@ select(Node) ->
 %% node is accessible through.
 %% ------------------------------------------------------------
 listen(Name) ->
+    case create_acceptor(Name) of
+        {ok, Pid} ->
+            {ok, {#fake_socket{name=Name, mypid=Pid}
+                 ,#net_address{address = []
+                              ,host = inet:gethostname()
+                              ,protocol = amqp
+                              ,family = amqp
+                              }
+                 ,3
+                 }
+            };
+        Else -> Else
+    end.
+
+create_acceptor(Name) ->
     application:load(amqp_dist),
-    {ok, Pid} = amqp_dist_acceptor:start(self(), Name),
-    {ok, {#fake_socket{name=Name, mypid=Pid},
-          #net_address{address = [],
-                       host = inet:gethostname(),
-                       protocol = amqp,
-                       family = amqp},
-          3
-         }
-    }.
+    amqp_dist_acceptor:start(self(), Name).
+
 
 %% ------------------------------------------------------------
 %% Accepts new connection attempts from other Erlang nodes.

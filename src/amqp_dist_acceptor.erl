@@ -59,6 +59,7 @@ init([Kernel, Name]) ->
     {ok, #{kernel => Kernel
           ,nodes => #{}
           ,connections => #{}
+          ,pids => #{}
           ,tags => #{}
           ,this => Node
           ,env => Env
@@ -201,67 +202,36 @@ handle_info({#'basic.consume'{}, _Pid}, State) ->
 handle_info(#'basic.consume_ok'{}, State) ->
     {noreply, State};
 
-handle_info(#'basic.cancel'{consumer_tag = Tag, nowait = _NoWait}, #{refs := Refs, tags := Tags} = State) ->
+handle_info(#'basic.cancel'{consumer_tag = Tag, nowait = _NoWait}, #{tags := Tags} = State) ->
     case maps:get(Tag, Tags, undefined) of
         undefined -> {noreply, State};
-        Uri ->
-            #{connections := #{Uri := Broker} = Connections} = State,
-            #{consumer_tag := Tag
-             ,connection_ref := ConnectionRef
-             ,channel_ref := ChannelRef
-             ,params := Params
-             } = Broker,
-            catch(stop_amqp(Broker)),
-            erlang:send_after(5000, self(), {reconnect, Uri, Params}),
-            {noreply, State#{connections => maps:without([Uri], Connections)
-                            ,refs => maps:without([ConnectionRef, ChannelRef], Refs)
-                            ,tags => maps:without([Tag], Tags)
-                            }
-            }
+        Uri -> {noreply, remove(Uri, State)}
     end;
 
-handle_info({'DOWN', _Ref, process, _Pid, 'shutdown'}, State) ->
-    {noreply, State#{hearbeat => false}};
-
-handle_info({'DOWN', _Ref, process, _Pid, 'killed'}, State) ->
-    {noreply, State#{hearbeat => false}};
-
-handle_info({'DOWN', Ref, process, _Pid, _Reason}, #{refs := Refs, tags := Tags} = State) ->
+handle_info({'DOWN', Ref, process, _Pid, _Reason}, #{refs := Refs} = State) ->
     case maps:get(Ref, Refs, undefined) of
         undefined -> {noreply, State};
-        Uri ->
-            #{connections := #{Uri := Broker} = Connections} = State,
-            #{consumer_tag := Tag
-             ,connection_ref := ConnectionRef
-             ,channel_ref := ChannelRef
-             ,params := Params
-             } = Broker,
-            catch(stop_amqp(Broker#{no_cancel => true})),
-            erlang:send_after(5000, self(), {reconnect, Uri, Params}),
-            {noreply, State#{connections => maps:without([Uri], Connections)
-                            ,refs => maps:without([ConnectionRef, ChannelRef], Refs)
-                            ,tags => maps:without([Tag], Tags)
-                            }
-            }
+        Uri -> {noreply, remove(Uri, State)}
     end;
 
-handle_info({'EXIT', _Pid, 'shutdown'}, State) ->
-    {noreply, State#{hearbeat => false}};
-
-handle_info({'EXIT', _Pid, 'killed'}, State) ->
-    {noreply, State#{hearbeat => false}};
-
-handle_info({'EXIT', _Pid, _Reason}, State) ->
-    {stop, normal, State#{state => error}};
+handle_info({'EXIT', Pid, _Reason}, #{pids := Pids} = State) ->
+    case maps:get(Pid, Pids, undefined) of
+        undefined -> {noreply, State};
+        Uri -> {noreply, remove(Uri, State)}
+    end;
 
 handle_info({reconnect, Uri, Params}, State) ->
     start_broker(Uri, Params, State),
     {noreply, State};
 
-handle_info({started, #{uri := Uri} = Broker0}, State) ->
+handle_info({started, #{uri := Uri
+                       ,connection := Connection
+                       ,channel := Channel
+                       } = Broker0}, State) ->
     Connections = maps:get(connections, State, #{}),
     Tags = maps:get(tags, State, #{}),
     Refs = maps:get(refs, State, #{}),
+    Pids = maps:get(pids, State, #{}),
     Broker = #{consumer_tag := Tag
               ,connection_ref := ConnectionRef
               ,channel_ref := ChannelRef
@@ -271,6 +241,9 @@ handle_info({started, #{uri := Uri} = Broker0}, State) ->
                     ,tags => Tags#{Tag => Uri}
                     ,refs => Refs#{ConnectionRef => Uri
                                   ,ChannelRef => Uri
+                                  }
+                    ,pids => Pids#{Connection => Uri
+                                  ,Channel => Uri
                                   }
                     }
     };
@@ -316,7 +289,15 @@ expire_connection(Pid, #{time := Time}=Connection, {Now, Connections}=Acc) ->
     end.
 
 is_up(Node) ->
-   gen_server:call(?MODULE, {is_up, Node}).
+    case whereis(?MODULE) of
+        undefined -> false;
+        Pid when is_pid(Pid) ->
+            case is_process_alive(Pid) of
+                true -> gen_server:call(Pid, {is_up, Node});
+                false -> false
+            end;
+        _Else -> false
+    end.
 
 connect(Node) ->
     case gen_server:call(?MODULE, {connection, Node}) of
@@ -336,12 +317,12 @@ accept({Node, Connection, Queue}) ->
 open_channel(Broker = #{connection := Connection, server := Pid}) ->
     {ok, Channel} = amqp_connection:open_channel(
                         Connection, {amqp_direct_consumer, [Pid]}),
-    Ref = erlang:monitor(process, Channel),
-    Ref2 = erlang:monitor(process, Connection),
+    ChannelRef = erlang:monitor(process, Channel),
+    ConnectionRef = erlang:monitor(process, Connection),
     
     Broker#{channel => Channel
-           ,channel_ref => Ref
-           ,connection_ref => Ref2
+           ,channel_ref => ChannelRef
+           ,connection_ref => ConnectionRef
            }.
 
 set_exchange(Broker) ->
@@ -526,3 +507,21 @@ auto_connected(Node) ->
                   net_kernel:connect_node(Node)
           end,
     spawn(Fun).
+
+
+remove(Uri, #{refs := Refs, tags := Tags, pids := Pids} = State) ->
+    #{connections := #{Uri := Broker} = Connections} = State,
+    #{connection := Connection
+     ,channel := Channel
+     ,consumer_tag := Tag
+     ,connection_ref := ConnectionRef
+     ,channel_ref := ChannelRef
+     ,params := Params
+     } = Broker,
+    catch(stop_amqp(Broker#{no_cancel => true})),
+    erlang:send_after(5000, self(), {reconnect, Uri, Params}),
+    State#{connections => maps:without([Uri], Connections)
+          ,refs => maps:without([ConnectionRef, ChannelRef], Refs)
+          ,tags => maps:without([Tag], Tags)
+          ,pids => maps:without([Connection, Channel], Pids)
+          }.
