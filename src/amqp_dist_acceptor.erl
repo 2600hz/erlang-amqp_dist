@@ -252,9 +252,11 @@ handle_info(_Info, State) ->
     lager:debug("unhandled message : ~p => ~p", [_Info, State]),
     {noreply, State}.
 
-terminate(_Reason, #{connections := Connections}=_State) ->
-    catch(stop_connections(Connections)),
+terminate(_Reason, _State) ->
     ok.
+%% terminate(_Reason, #{connections := Connections}=_State) ->
+%%     catch(stop_connections(Connections)),
+%%     ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
