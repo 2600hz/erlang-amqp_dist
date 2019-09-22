@@ -216,7 +216,7 @@ handle_info({'DOWN', Ref, process, _Pid, _Reason}, #{refs := Refs} = State) ->
 
 handle_info({'EXIT', Pid, _Reason}, #{pids := Pids} = State) ->
     case maps:get(Pid, Pids, undefined) of
-        undefined -> {noreply, State};
+        undefined -> {stop, normal, State};
         Uri -> {noreply, remove(Uri, State)}
     end;
 
@@ -249,11 +249,9 @@ handle_info({started, #{uri := Uri
     };
 
 handle_info(_Info, State) ->
-    lager:info("UNHANDLED MSG : ~p => ~p", [_Info, State]),
+    lager:debug("unhandled message : ~p => ~p", [_Info, State]),
     {noreply, State}.
 
-terminate('shutdown', _State) -> ok;
-terminate('killed', _State) -> ok;
 terminate(_Reason, #{connections := Connections}=_State) ->
     catch(stop_connections(Connections)),
     ok.
