@@ -320,10 +320,10 @@ open_channel(Broker = #{connection := Connection
                        ,uri := Uri
                        ,server := Pid
                        }) ->
-    lager:info("opening channel  ~s : ~p", [Uri, Pid]),
+    lager:info("opening channel  ~s : ~p : ~p", [Uri, Connection, Pid]),
     {ok, Channel} = amqp_connection:open_channel(
                         Connection, {amqp_direct_consumer, [Pid]}),
-    lager:info("channel opened  ~s : ~p", [Uri, Pid]),
+    lager:info("channel opened  ~s : ~p : ~p : ~p", [Uri, Connection, Pid, Channel]),
     ChannelRef = erlang:monitor(process, Channel),
     ConnectionRef = erlang:monitor(process, Connection),
     
