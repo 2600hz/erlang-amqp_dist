@@ -227,6 +227,7 @@ handle_info({'EXIT', Pid, _Reason}, #{pids := Pids} = State) ->
     end;
 
 handle_info({reconnect, Uri, Params}, State) ->
+    lager:info("reconnecting ~s", [Uri]),
     start_broker(Uri, Params, State),
     {noreply, State};
 
@@ -362,7 +363,7 @@ start_heartbeat(Broker = #{uri := Uri, connection := Connection, channel := Chan
     ConnectionRef = erlang:monitor(process, Connection),
     ChannelRef = erlang:monitor(process, Channel),
     Reference = erlang:make_ref(),
-    erlang:send_after(500, self(), {'heartbeat', Reference, Uri}),
+    erlang:send_after(?HEARTBEAT_PERIOD, self(), {'heartbeat', Reference, Uri}),
     Broker#{heartbeat => Reference, connection_ref => ConnectionRef, channel_ref => ChannelRef}.
 
 start_broker(Uri, Params, #{node_started_at := Start, connections := Connections}) ->
@@ -414,14 +415,20 @@ broker_fold(Fun, Broker) ->
     end.
 
 stop_amqp(Broker) ->
-    Routines = [fun cancel_consume/1
+    Routines = [fun cancel_heartbeat/1
+               ,fun cancel_consume/1
                ,fun unregister_handler/1
                ,fun remove_monitors/1
                ,fun close_channel/1
                ,fun close_connection/1
                ],
     lists:foldl(fun broker_fold/2, Broker, Routines).
-    
+
+cancel_heartbeat(Broker = #{heartbeat := Timer}) ->
+    erlang:cancel_timer(Timer),
+    maps:without([heartbeat], Broker);
+cancel_heartbeat(Broker) -> Broker.
+
 cancel_consume(Broker = #{no_cancel := true}) ->
     maps:without([consumer_tag, no_cancel], Broker);
 cancel_consume(Broker = #{channel := Channel
