@@ -212,15 +212,15 @@ handle_info(#'basic.cancel'{consumer_tag = Tag, nowait = _NoWait}, #{tags := Tag
         Uri -> {noreply, remove(Uri, State)}
     end;
 
-handle_info({'DOWN', Ref, process, _Pid, _Reason}, #{refs := Refs} = State) ->
-    lager:info("down from ~p : ~p : ~p", [Ref, _Pid, _Reason]),
+handle_info({'DOWN', Ref, process, _Pid, _Reason}, #{refs := Refs, pids := _Pids} = State) ->
+    lager:info("down from ~p : ~p : ~p : ~p", [Ref, _Pid, _Reason, {self(), Refs, _Pids}]),
     case maps:get(Ref, Refs, undefined) of
         undefined -> {noreply, State};
         Uri -> {noreply, remove(Uri, State)}
     end;
 
 handle_info({'EXIT', Pid, _Reason}, #{pids := Pids} = State) ->
-    lager:info("exit from ~p : ~p : ~p", [Pid, _Reason, self()]),
+    lager:info("exit from ~p : ~p : ~p", [Pid, _Reason, {self(), Pids}]),
     case maps:get(Pid, Pids, undefined) of
         undefined -> {stop, normal, State};
         Uri -> {noreply, remove(Uri, State)}
@@ -258,7 +258,8 @@ handle_info(_Info, State) ->
     lager:debug("unhandled message : ~p => ~p", [_Info, State]),
     {noreply, State}.
 
-terminate(_Reason, _State) -> ok.
+terminate(_Reason, _State) ->
+    lager:info("amqp_dist acceptor terminated with reason : ~p", [_Reason]).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
