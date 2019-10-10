@@ -44,7 +44,11 @@ add_broker(Uri) ->
             lager:error("failed to parse AMQP URI '~s': ~p", [Uri, Info]),
             {'error', 'invalid_uri'};
         {'ok', Params} ->
-            gen_server:call(?MODULE, {add_broker, Uri, Params})
+            case erlang:whereis(?MODULE) of
+                undefined -> ok;
+                Pid when is_pid(Pid) -> gen_server:call(?MODULE, {add_broker, Uri, Params});
+                _Pid -> ok
+            end
     end.
 
 init([Kernel, Name]) ->
@@ -209,12 +213,14 @@ handle_info(#'basic.cancel'{consumer_tag = Tag, nowait = _NoWait}, #{tags := Tag
     end;
 
 handle_info({'DOWN', Ref, process, _Pid, _Reason}, #{refs := Refs} = State) ->
+    lager:info("down from ~p : ~p : ~p", [Ref, _Pid, _Reason]),
     case maps:get(Ref, Refs, undefined) of
         undefined -> {noreply, State};
         Uri -> {noreply, remove(Uri, State)}
     end;
 
 handle_info({'EXIT', Pid, _Reason}, #{pids := Pids} = State) ->
+    lager:info("exit from ~p : ~p : ~p", [Pid, _Reason, self()]),
     case maps:get(Pid, Pids, undefined) of
         undefined -> {stop, normal, State};
         Uri -> {noreply, remove(Uri, State)}
@@ -252,11 +258,7 @@ handle_info(_Info, State) ->
     lager:debug("unhandled message : ~p => ~p", [_Info, State]),
     {noreply, State}.
 
-terminate(_Reason, _State) ->
-    ok.
-%% terminate(_Reason, #{connections := Connections}=_State) ->
-%%     catch(stop_connections(Connections)),
-%%     ok.
+terminate(_Reason, _State) -> ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -314,9 +316,14 @@ best_node({_, #{latency := L1}}, {_, #{latency := L2}}) ->
 accept({Node, Connection, Queue}) ->
     amqp_dist_node:start(Connection, Node, Queue, 'accept').
 
-open_channel(Broker = #{connection := Connection, server := Pid}) ->
+open_channel(Broker = #{connection := Connection
+                       ,uri := Uri
+                       ,server := Pid
+                       }) ->
+    lager:info("opening channel  ~s : ~p", [Uri, Pid]),
     {ok, Channel} = amqp_connection:open_channel(
                         Connection, {amqp_direct_consumer, [Pid]}),
+    lager:info("channel opened  ~s : ~p", [Uri, Pid]),
     ChannelRef = erlang:monitor(process, Channel),
     ConnectionRef = erlang:monitor(process, Connection),
     
@@ -362,14 +369,15 @@ start_broker(Uri, Params, #{node_started_at := Start, connections := Connections
         undefined ->
             case amqp_connection:start(Params) of
                 {ok, Pid} ->
-                        Broker = #{params => Params
-                                  ,connection => Pid
-                                  ,uri => Uri
-                                  ,node_started_at => Start
-                                  ,server => self()
-                                  },
-                        spawn(fun() -> start_amqp(Broker) end),
-                        {ok, starting};
+                    lager:info("started connection to ~s : ~p", [Uri, Pid]),
+                    Broker = #{params => Params
+                              ,connection => Pid
+                              ,uri => Uri
+                              ,node_started_at => Start
+                              ,server => self()
+                              },
+                    spawn(fun() -> start_amqp(Broker) end),
+                    {ok, starting};
                 Error -> Error
             end;
         _ -> {error, duplicated_uri}
@@ -391,7 +399,7 @@ start_amqp(#{uri := Uri
         Broker = lists:foldl(fun broker_fold/2, Broker0, Routines),
         Server ! {started, Broker}
     catch
-        _E:Reason ->
+        _E:Reason:_ST ->
             lager:error("error starting amqp : ~p", [{_E, Reason}]),
             catch(amqp_connection:close(Connection)),
             erlang:send_after(1500, Server, {reconnect, Uri, Params}),
@@ -404,18 +412,6 @@ broker_fold(Fun, Broker) ->
        _ -> Broker
     end.
 
-broker_fold2(Fun, Broker) ->
-    case catch(Fun(Broker)) of
-       #{} = Updated -> Updated;
-       _ -> Broker
-    end.
-
-stop_connections(Connections) ->
-    maps:map(fun stop_broker/2, Connections).
-
-stop_broker(_Uri, Broker) ->
-    stop_amqp(Broker).
-
 stop_amqp(Broker) ->
     Routines = [fun cancel_consume/1
                ,fun unregister_handler/1
@@ -423,7 +419,7 @@ stop_amqp(Broker) ->
                ,fun close_channel/1
                ,fun close_connection/1
                ],
-    lists:foldl(fun broker_fold2/2, Broker, Routines).
+    lists:foldl(fun broker_fold/2, Broker, Routines).
     
 cancel_consume(Broker = #{no_cancel := true}) ->
     maps:without([consumer_tag, no_cancel], Broker);
@@ -469,7 +465,7 @@ publish(#{channel := Channel, queue := Q, exchange := X, node_started_at := Star
                                  ]
                       },
     Publish = #'basic.publish'{exchange = X},
-    amqp_channel:call(Channel, Publish, #amqp_msg{props = Props}).
+    catch amqp_channel:call(Channel, Publish, #amqp_msg{props = Props}).
 
 stop() ->
     gen_server:call(?MODULE, stop).
