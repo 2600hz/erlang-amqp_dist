@@ -212,18 +212,16 @@ handle_info(#'basic.cancel'{consumer_tag = Tag, nowait = _NoWait}, #{tags := Tag
         Uri -> {noreply, remove(Uri, State)}
     end;
 
-handle_info({'DOWN', Ref, process, _Pid, _Reason}, #{refs := Refs, pids := _Pids} = State) ->
-    lager:info("down from ~p : ~p : ~p : ~p", [Ref, _Pid, _Reason, {self(), Refs, _Pids}]),
+handle_info({'DOWN', Ref, process, Pid, _Reason}, #{refs := Refs, pids := _Pids} = State) ->
     case maps:get(Ref, Refs, undefined) of
         undefined -> {noreply, State};
-        Uri -> {noreply, remove(Uri, State)}
+        Uri -> {noreply, remove(Uri, Pid, State)}
     end;
 
 handle_info({'EXIT', Pid, _Reason}, #{pids := Pids} = State) ->
-    lager:info("exit from ~p : ~p : ~p", [Pid, _Reason, {self(), Pids}]),
     case maps:get(Pid, Pids, undefined) of
         undefined -> {stop, normal, State};
-        Uri -> {noreply, remove(Uri, State)}
+        Uri -> {noreply, remove(Uri, Pid, State)}
     end;
 
 handle_info({reconnect, Uri, Params}, State) ->
@@ -415,14 +413,22 @@ broker_fold(Fun, Broker) ->
     end.
 
 stop_amqp(Broker) ->
-    Routines = [fun cancel_heartbeat/1
+    Routines = [fun stop_amqp_log/1
+               ,fun cancel_heartbeat/1
+               ,fun remove_monitors/1
                ,fun cancel_consume/1
                ,fun unregister_handler/1
-               ,fun remove_monitors/1
                ,fun close_channel/1
                ,fun close_connection/1
                ],
     lists:foldl(fun broker_fold/2, Broker, Routines).
+
+stop_amqp_log(#{connection := Connection
+               ,channel := Channel
+               }) ->
+    lager:info("closing connection ~p : ~p", [Connection, Channel]);
+stop_amqp_log(#{connection := Connection}) ->
+    lager:info("closing connection ~p", [Connection]).
 
 cancel_heartbeat(Broker = #{heartbeat := Timer}) ->
     erlang:cancel_timer(Timer),
@@ -431,12 +437,23 @@ cancel_heartbeat(Broker) -> Broker.
 
 cancel_consume(Broker = #{no_cancel := true}) ->
     maps:without([consumer_tag, no_cancel], Broker);
-cancel_consume(Broker = #{channel := Channel
+cancel_consume(Broker = #{connection := Connection
+                         ,channel := Channel
                          ,consumer_tag := ConsumerTag
-                         }) ->
-    #'basic.cancel_ok'{consumer_tag = ConsumerTag} =
-        amqp_channel:call(Channel, #'basic.cancel'{consumer_tag = ConsumerTag}),
-    maps:without([consumer_tag], Broker).
+                         })
+  when is_pid(Connection)
+  andalso is_pid(Channel) ->
+    _ = case is_process_alive(Connection)
+            andalso is_process_alive(Channel)    
+        of
+            true ->
+                #'basic.cancel_ok'{consumer_tag = ConsumerTag} =
+                    amqp_channel:call(Channel, #'basic.cancel'{consumer_tag = ConsumerTag});
+            false -> ok
+        end,
+    maps:without([consumer_tag], Broker);
+cancel_consume(Broker) ->
+    maps:without([consumer_tag, no_cancel], Broker).
 
 remove_monitors(Broker = #{channel_ref := ChannelRef
                           ,connection_ref := ConnectionRef
@@ -445,15 +462,36 @@ remove_monitors(Broker = #{channel_ref := ChannelRef
     erlang:demonitor(ConnectionRef),
     maps:without([channel_ref,connection_ref], Broker).
     
-unregister_handler(#{channel := Channel}) ->
-    amqp_channel:unregister_return_handler(Channel).
+unregister_handler(#{connection := Connection
+                    ,channel := Channel
+                    })
+  when is_pid(Connection)
+  andalso is_pid(Channel) ->
+    case is_process_alive(Connection)
+        andalso is_process_alive(Channel)
+    of
+        true -> amqp_channel:unregister_return_handler(Channel);
+        false -> ok
+    end;
+unregister_handler(Broker) -> Broker.
 
 close_connection(Broker = #{connection := Connection}) ->
     catch(amqp_connection:close(Connection)),
     maps:without([connection], Broker).
 
-close_channel(Broker = #{channel := Channel}) ->
-    catch(amqp_channel:close(Channel)),
+close_channel(Broker = #{connection := Connection
+                        ,channel := Channel
+                        })
+  when is_pid(Connection)
+  andalso is_pid(Channel) ->
+    _ = case is_process_alive(Connection)
+            andalso is_process_alive(Channel)
+        of
+            true -> catch(amqp_channel:close(Channel));
+            false -> ok
+        end,
+    maps:without([channel], Broker);
+close_channel(Broker) ->
     maps:without([channel], Broker).
 
 -spec decode(kz_term:api_binary()) -> term().
@@ -513,7 +551,12 @@ auto_connected(Node) ->
     spawn(Fun).
 
 
-remove(Uri, #{refs := Refs, tags := Tags, pids := Pids} = State) ->
+remove(Uri, State) ->
+    #{connections := #{Uri := Broker}} = State,
+    #{connection := Connection} = Broker,
+    remove(Uri, Connection, State).
+
+remove(Uri, _Pid, #{refs := Refs, tags := Tags, pids := Pids} = State) ->
     #{connections := #{Uri := Broker} = Connections} = State,
     #{connection := Connection
      ,channel := Channel
