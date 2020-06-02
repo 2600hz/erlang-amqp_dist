@@ -28,6 +28,7 @@
 
 -define(CONNECTION_TIMEOUT, 10000).
 -define(HEARTBEAT_PERIOD, 3500).
+-define(RECONNECT_AFTER, 1500).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [undefined], []).
@@ -67,14 +68,18 @@ init([Kernel, Name]) ->
           ,tags => #{}
           ,this => Node
           ,env => Env
+          ,brokers => #{}
           ,node_started_at => os:system_time(microsecond)
           }
     }.
 
 handle_call({add_broker, Uri, Params}, _From, State) ->
-    case start_broker(Uri, Params, State) of
-        {ok, starting} -> {reply, ok, State};
-        {error, _Error} = Err -> {reply, Err, State}
+    case add_broker(Uri, Params, State) of
+        {ok, NewState} ->
+            erlang:send_after(?RECONNECT_AFTER, self(), {reconnect, Uri, Params}),
+            {reply, ok, NewState};
+        Error ->
+            {reply, Error, State}
     end;
 
 handle_call(nodes, _From, #{nodes := Nodes} = State) ->
@@ -364,23 +369,29 @@ start_heartbeat(Broker = #{uri := Uri, connection := Connection, channel := Chan
     erlang:send_after(?HEARTBEAT_PERIOD, self(), {'heartbeat', Reference, Uri}),
     Broker#{heartbeat => Reference, connection_ref => ConnectionRef, channel_ref => ChannelRef}.
 
-start_broker(Uri, Params, #{node_started_at := Start, connections := Connections}) ->
-    case maps:get(Uri, Connections, undefined) of
-        undefined ->
-            case amqp_connection:start(Params) of
-                {ok, Pid} ->
-                    lager:info("started connection to ~s : ~p", [Uri, Pid]),
-                    Broker = #{params => Params
-                              ,connection => Pid
-                              ,uri => Uri
-                              ,node_started_at => Start
-                              ,server => self()
-                              },
-                    spawn(fun() -> start_amqp(Broker) end),
-                    {ok, starting};
-                Error -> Error
-            end;
-        _ -> {error, duplicated_uri}
+start_broker(Uri, Params, #{node_started_at := Start}) ->
+    case amqp_connection_start(Params) of
+        {ok, Pid} ->
+            lager:info("started connection to ~s : ~p", [Uri, Pid]),
+            Broker = #{params => Params
+                      ,connection => Pid
+                      ,uri => Uri
+                      ,node_started_at => Start
+                      ,server => self()
+                      },
+            spawn(fun() -> start_amqp(Broker) end);
+        Error ->
+            lager:warning("connection start returned => ~p", [Error]),
+            erlang:send_after(?RECONNECT_AFTER, self(), {reconnect, Uri, Params})
+    end.
+
+amqp_connection_start(Params) ->
+    try
+        amqp_connection:start(Params)
+    catch
+        _E:Reason:_ST ->
+            lager:error("error starting amqp connection : ~p", [{_E, Reason}]),
+            {error, Reason}
     end.
 
 start_amqp(#{uri := Uri
@@ -402,7 +413,7 @@ start_amqp(#{uri := Uri
         _E:Reason:_ST ->
             lager:error("error starting amqp : ~p", [{_E, Reason}]),
             catch(amqp_connection:close(Connection)),
-            erlang:send_after(1500, Server, {reconnect, Uri, Params}),
+            erlang:send_after(?RECONNECT_AFTER, Server, {reconnect, Uri, Params}),
             {error, Reason}
     end.
 
@@ -572,3 +583,11 @@ remove(Uri, _Pid, #{refs := Refs, tags := Tags, pids := Pids} = State) ->
           ,tags => maps:without([Tag], Tags)
           ,pids => maps:without([Connection, Channel], Pids)
           }.
+
+add_broker(Uri, Params, #{brokers := Brokers} = State) ->
+    case maps:get(Uri, Brokers, undefined) of
+        undefined ->
+            {ok, State#{brokers => Brokers#{Uri => Params}}};
+        _Exists ->
+            {error, duplicated_broker_uri}
+    end.
