@@ -29,6 +29,7 @@
 -define(CONNECTION_TIMEOUT, 10000).
 -define(HEARTBEAT_PERIOD, 3500).
 -define(RECONNECT_AFTER, 1500).
+-define(GEN_SERVER_CALL_TIMEOUT, 750).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [undefined], []).
@@ -225,7 +226,7 @@ handle_info({'DOWN', Ref, process, Pid, _Reason}, #{refs := Refs, pids := _Pids}
 
 handle_info({'EXIT', Pid, _Reason}, #{pids := Pids} = State) ->
     case maps:get(Pid, Pids, undefined) of
-        undefined -> {stop, normal, State};
+        undefined -> {noreply, State};
         Uri -> {noreply, remove(Uri, Pid, State)}
     end;
 
@@ -300,7 +301,13 @@ is_up(Node) ->
         undefined -> false;
         Pid when is_pid(Pid) ->
             case is_process_alive(Pid) of
-                true -> gen_server:call(Pid, {is_up, Node});
+                true ->
+                    try gen_server:call(Pid, {is_up, Node}, ?GEN_SERVER_CALL_TIMEOUT) of
+                        Alive when is_boolean(Alive) -> Alive;
+                        _NotABool -> false
+                    catch
+                        _:_:_ -> false
+                    end;
                 false -> false
             end;
         _Else -> false
