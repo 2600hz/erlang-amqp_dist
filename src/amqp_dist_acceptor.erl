@@ -107,8 +107,15 @@ handle_call({connection, Node}, _From, #{nodes := Nodes, connections := Connecti
             {reply, {error, not_available}, State};
         Map ->
             {Uri, #{queue := Queue}} = best_node(Map),
-            #{connection := Pid} = maps:get(Uri, Connections),
-            {reply, {ok, {Pid, Queue}}, State}
+            case maps:get(Uri, Connections, undefined) of
+                undefined -> {reply, {error, no_connection}, State};
+                #{connection := Pid} ->
+                    case is_process_alive(Pid) of
+                        true -> {reply, {ok, {Pid, Queue}}, State};
+                        false -> {reply, {error, no_connection}, State}
+                    end;
+                _Else -> {reply, {error, no_connection}, State}
+            end
     end;
 
 handle_call(_Request, _From, State) ->
