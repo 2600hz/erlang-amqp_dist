@@ -183,7 +183,7 @@ do_setup(Kernel, Node, Type, MyNode, _LongOrShortNames, SetupTime) ->
 %% Close a socket.
 %%
 close(Listen) ->
-    lager:info("CLOSE ~p", [Listen]).
+    ?LOG_INFO("close ~p", [Listen]).
 
 
 split_node([Chr|T], Chr, Ack) -> [lists:reverse(Ack)|split_node(T, Chr, [])];

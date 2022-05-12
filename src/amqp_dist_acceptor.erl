@@ -25,11 +25,10 @@
 -export([stop/0, stop/1]).
 -export([acceptor/1, acceptor/2]).
 
-
--define(CONNECTION_TIMEOUT, 10000).
--define(HEARTBEAT_PERIOD, 3500).
--define(RECONNECT_AFTER, 1500).
--define(GEN_SERVER_CALL_TIMEOUT, 750).
+-define(CONNECTION_TIMEOUT, parameter(connection_timeout_ms)).
+-define(HEARTBEAT_PERIOD, parameter(heartbeat_period_ms)).
+-define(RECONNECT_AFTER, parameter(pause_before_reconnect_ms)).
+-define(GEN_SERVER_CALL_TIMEOUT, parameter(server_call_timeout_ms)).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [undefined], []).
@@ -40,10 +39,10 @@ start(Kernel, Name) ->
 add_broker(Uri) ->
     case catch amqp_uri:parse(Uri) of
         {'EXIT', _R} ->
-            lager:error("failed to parse AMQP URI '~s': ~p", [Uri, _R]),
+            ?LOG_ERROR("failed to parse AMQP URI '~s': ~p", [Uri, _R]),
             {'error', 'invalid_uri'};
         {'error', {Info, _}} ->
-            lager:error("failed to parse AMQP URI '~s': ~p", [Uri, Info]),
+            ?LOG_ERROR("failed to parse AMQP URI '~s': ~p", [Uri, Info]),
             {'error', 'invalid_uri'};
         {'ok', Params} ->
             case erlang:whereis(?MODULE) of
@@ -238,7 +237,7 @@ handle_info({'EXIT', Pid, _Reason}, #{pids := Pids} = State) ->
     end;
 
 handle_info({reconnect, Uri, Params}, State) ->
-    lager:info("reconnecting ~s", [Uri]),
+    ?LOG_INFO("reconnecting ~s", [Uri]),
     start_broker(Uri, Params, State),
     {noreply, State};
 
@@ -267,11 +266,11 @@ handle_info({started, #{uri := Uri
     };
 
 handle_info(_Info, State) ->
-    lager:debug("unhandled message : ~p => ~p", [_Info, State]),
+    ?LOG_DEBUG("unhandled message : ~p => ~p", [_Info, State]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    lager:info("amqp_dist acceptor terminated with reason : ~p", [_Reason]).
+    ?LOG_INFO("amqp_dist acceptor terminated with reason : ~p", [_Reason]).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -339,10 +338,10 @@ open_channel(Broker = #{connection := Connection
                        ,uri := Uri
                        ,server := Pid
                        }) ->
-    lager:info("opening channel  ~s : ~p : ~p", [Uri, Connection, Pid]),
+    ?LOG_INFO("opening channel  ~s : ~p : ~p", [Uri, Connection, Pid]),
     {ok, Channel} = amqp_connection:open_channel(
                         Connection, {amqp_direct_consumer, [Pid]}),
-    lager:info("channel opened  ~s : ~p : ~p : ~p", [Uri, Connection, Pid, Channel]),
+    ?LOG_INFO("channel opened  ~s : ~p : ~p : ~p", [Uri, Connection, Pid, Channel]),
     ChannelRef = erlang:monitor(process, Channel),
     ConnectionRef = erlang:monitor(process, Connection),
     
@@ -386,7 +385,7 @@ start_heartbeat(Broker = #{uri := Uri, connection := Connection, channel := Chan
 start_broker(Uri, Params, #{node_started_at := Start}) ->
     case amqp_connection_start(Params) of
         {ok, Pid} ->
-            lager:info("started connection to ~s : ~p", [Uri, Pid]),
+            ?LOG_INFO("started connection to ~s : ~p", [Uri, Pid]),
             Broker = #{params => Params
                       ,connection => Pid
                       ,uri => Uri
@@ -395,7 +394,7 @@ start_broker(Uri, Params, #{node_started_at := Start}) ->
                       },
             spawn(fun() -> start_amqp(Broker) end);
         Error ->
-            lager:warning("connection start returned => ~p", [Error]),
+            ?LOG_WARNING("connection start returned => ~p", [Error]),
             erlang:send_after(?RECONNECT_AFTER, self(), {reconnect, Uri, Params})
     end.
 
@@ -404,7 +403,7 @@ amqp_connection_start(Params) ->
         amqp_connection:start(Params)
     catch
         _E:Reason:_ST ->
-            lager:error("error starting amqp connection : ~p", [{_E, Reason}]),
+            ?LOG_ERROR("error starting amqp connection : ~p", [{_E, Reason}]),
             {error, Reason}
     end.
 
@@ -425,7 +424,7 @@ start_amqp(#{uri := Uri
         Server ! {started, Broker}
     catch
         _E:Reason:_ST ->
-            lager:error("error starting amqp : ~p", [{_E, Reason}]),
+            ?LOG_ERROR("error starting amqp : ~p", [{_E, Reason}]),
             catch(amqp_connection:close(Connection)),
             erlang:send_after(?RECONNECT_AFTER, Server, {reconnect, Uri, Params}),
             {error, Reason}
@@ -451,9 +450,9 @@ stop_amqp(Broker) ->
 stop_amqp_log(#{connection := Connection
                ,channel := Channel
                }) ->
-    lager:info("closing connection ~p : ~p", [Connection, Channel]);
+    ?LOG_INFO("closing connection ~p : ~p", [Connection, Channel]);
 stop_amqp_log(#{connection := Connection}) ->
-    lager:info("closing connection ~p", [Connection]).
+    ?LOG_INFO("closing connection ~p", [Connection]).
 
 cancel_heartbeat(Broker = #{heartbeat := Timer}) ->
     erlang:cancel_timer(Timer),
@@ -526,7 +525,7 @@ decode(Bin) ->
 
 publish(#{heartbeat := false}) -> 'ok';
 publish(#{state := error}) ->
-    lager:info("not publishing due to connection error");
+    ?LOG_INFO("not publishing due to connection error");
 publish(#{channel := Channel, queue := Q, exchange := X, node_started_at := Start}) ->
     Props = #'P_basic'{correlation_id = atom_to_binary(node(), utf8)
                       ,reply_to = Q
@@ -605,3 +604,11 @@ add_broker(Uri, Params, #{brokers := Brokers} = State) ->
         _Exists ->
             {error, duplicated_broker_uri}
     end.
+
+parameter(Param) ->
+    application:get_env(amqp_dist, Param, default_value(Param)).
+
+default_value(connection_timeout_ms) -> 10000;
+default_value(heartbeat_period_ms) -> 45000;
+default_value(pause_before_reconnect_ms) -> 3500;
+default_value(server_call_timeout_ms) -> 750.

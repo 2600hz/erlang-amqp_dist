@@ -1,7 +1,12 @@
 {application,amqp_dist,
-             [{applications,[kernel,stdlib,lager,amqp_client]},
+             [{applications,[kernel,stdlib,amqp_client]},
               {description,"amqp protocol distribution"},
-              {env,[]},
+              {env,[
+                  {heartbeat_period_ms, 30000},
+                  {connection_timeout_ms, 10000},
+                  {pause_before_reconnect_ms, 3500},
+                  {server_call_timeout_ms, 750}
+              ]},
               {modules,[]},
               {registered,[]},
               {vsn,"5.0.0"}]}.
