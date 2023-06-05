@@ -1,20 +1,22 @@
-{"1.1.0",
-[{<<"amqp_client">>,{pkg,<<"amqp_client">>,<<"3.7.9">>},0},
- {<<"goldrush">>,{pkg,<<"goldrush">>,<<"0.1.9">>},3},
- {<<"jsx">>,{pkg,<<"jsx">>,<<"2.9.0">>},2},
- {<<"lager">>,{pkg,<<"lager">>,<<"3.6.5">>},2},
- {<<"rabbit_common">>,{pkg,<<"rabbit_common">>,<<"3.7.9">>},1},
- {<<"ranch">>,{pkg,<<"ranch">>,<<"1.6.2">>},2},
- {<<"ranch_proxy_protocol">>,{pkg,<<"ranch_proxy_protocol">>,<<"2.1.1">>},2},
- {<<"recon">>,{pkg,<<"recon">>,<<"2.3.6">>},2}]}.
+{"1.2.0",
+[{<<"amqp_client">>,{pkg,<<"amqp_client">>,<<"3.12.0">>},0},
+ {<<"credentials_obfuscation">>,
+  {pkg,<<"credentials_obfuscation">>,<<"3.4.0">>},
+  1},
+ {<<"rabbit_common">>,{pkg,<<"rabbit_common">>,<<"3.12.0">>},1},
+ {<<"recon">>,{pkg,<<"recon">>,<<"2.5.3">>},2},
+ {<<"thoas">>,{pkg,<<"thoas">>,<<"1.0.0">>},2}]}.
 [
 {pkg_hash,[
- {<<"amqp_client">>, <<"EBEF998500C31D4954E882868806258A9CEBF01DD6C76804B1A2EFDB454753FC">>},
- {<<"goldrush">>, <<"F06E5D5F1277DA5C413E84D5A2924174182FB108DABB39D5EC548B27424CD106">>},
- {<<"jsx">>, <<"D2F6E5F069C00266CAD52FB15D87C428579EA4D7D73A33669E12679E203329DD">>},
- {<<"lager">>, <<"831910109F3FCB503DEBF658CA0538836B348C58BFBF349A6D48228096CE9040">>},
- {<<"rabbit_common">>, <<"542D2EB8EF8F76E5346B30665604D8D63B8D5CF47D1878243CEC44D1642C4435">>},
- {<<"ranch">>, <<"6DB93C78F411EE033DBB18BA8234C5574883ACB9A75AF0FB90A9B82EA46AFA00">>},
- {<<"ranch_proxy_protocol">>, <<"3C4723327166D2D63C0405F4914E2E471C6DE362CC844E9B203AF5763E7C9D25">>},
- {<<"recon">>, <<"2BCAD0CF621FB277CABBB6413159CD3AA30265C2DEE42C968697988B30108604">>}]}
+ {<<"amqp_client">>, <<"B922ADE35B70EDDDC91FD978F44FA7A3DE4A573BB6281D1F131A6A9EC066F233">>},
+ {<<"credentials_obfuscation">>, <<"34E18B126B3AEFD6E8143776FBE1CECEEA6792307C99AC5EE8687911F048CFD7">>},
+ {<<"rabbit_common">>, <<"A672A253607B931197E63CC1BDB2A38C0400CA88EE7003C208D94AD0722479AF">>},
+ {<<"recon">>, <<"739107B9050EA683C30E96DE050BC59248FD27EC147696F79A8797FF9FA17153">>},
+ {<<"thoas">>, <<"567C03902920827A18A89F05B79A37B5BF93553154B883E0131801600CF02CE0">>}]},
+{pkg_hash_ext,[
+ {<<"amqp_client">>, <<"021474384F63DD2F551F158BB361CA44A4649E1C98BFBAD21AE035DF75A19FC8">>},
+ {<<"credentials_obfuscation">>, <<"738ACE0ED5545D2710D3F7383906FC6F6B582D019036E5269C4DBD85DBCED566">>},
+ {<<"rabbit_common">>, <<"E2C728775044483A0F71C143345D2F31B2DED1FB54B5E236F8D8465E5B7260C4">>},
+ {<<"recon">>, <<"6C6683F46FD4A1DFD98404B9F78DCABC7FCD8826613A89DCB984727A8C3099D7">>},
+ {<<"thoas">>, <<"FC763185B932ECB32A554FB735EE03C3B6B1B31366077A2427D2A97F3BD26735">>}]}
 ].
