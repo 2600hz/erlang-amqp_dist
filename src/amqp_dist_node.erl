@@ -5,7 +5,7 @@
 
 -behaviour(gen_server).
 
--export([start/4, start_link/3]).
+-export([start/5]).
 
 -export([init/1, terminate/2, code_change/3, handle_call/3,
          handle_cast/2, handle_info/2]).
@@ -16,21 +16,20 @@
         ,tick/1
         ,connected/2
         ,stats/1
-        ,setup/2
+        ,setup/1
         ,controller/2
         ,receiver/2
         ]).
+
+-define(PHASE_CHECK_INTERVAL, 20000).
 
 %%--------------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------------
 
-start_link(Connection, Node, Queue) ->
-    gen_server:start_link(?MODULE, [Connection, Node, Queue], []).
-
-start(Connection, Node, Queue, Action) ->
-    case gen_server:start(?MODULE, [Connection, Node, Queue], []) of
-        {ok, Pid} -> setup(Pid, Action);
+start(Connection, Label, Node, Queue, Action) ->
+    case gen_server:start(?MODULE, [Connection, Label, Node, Queue, Action], []) of
+        {ok, Pid} -> setup(Pid);
         Error -> Error
     end.
             
@@ -48,16 +47,18 @@ publish(Data, #{channel := Channel, queue := Q, exchange := X, remote_queue := R
 
 %% Sets up a reply queue and consumer within an existing channel
 %% @private
-init([Connection, Node, Queue]) ->
+init([Connection, Label, Node, Queue, Action]) ->
     process_flag(trap_exit, true),
     {ok, start_amqp(#{phase => init
                      ,remote_queue => Queue
                      ,node => Node
                      ,connection => Connection
+                     ,connection_label => Label
                      ,exchange => <<>>
                      ,data => queue:new()
                      ,sent => 0
                      ,recv => 0
+                     ,action => Action
                      })}.
 
 %% Closes the channel this gen_server instance started
@@ -84,9 +85,7 @@ handle_call({send, Data}, _From, #{sent := Sent} = State) ->
     {reply, Result, State#{sent => Sent + Size}};
 
 handle_call({connected, Receiver}, _From, State) ->
-    {reply, ok, State#{receiver => Receiver
-                      ,phase => connected
-                      }};
+    {reply, ok, set_phase(State#{receiver => Receiver}, connected)};
 
 handle_call(stats, _From, #{sent := Sent, recv := Received} = State) ->
     {reply, {ok, Received, Sent, false}, State};
@@ -97,7 +96,15 @@ handle_call({setup, connect}, From, State) ->
 
 handle_call({setup, accept}, _From, State) ->
     publish({amqp_dist, confirmed}, State),
-    {reply, {ok, self()}, State#{phase => handshake}};
+    {reply, {ok, self()}, set_phase(State, handshake)};
+
+handle_call(setup, From, #{action := connect} = State) ->
+    publish({amqp_dist, connect}, State),
+    {noreply, State#{caller => From}};
+
+handle_call(setup, _From, #{action := accept} = State) ->
+    publish({amqp_dist, confirmed}, State),
+    {reply, {ok, self()}, set_phase(State, handshake)};
 
 handle_call({controller, Controller}, _From, State) ->    
     link(Controller),
@@ -105,12 +112,16 @@ handle_call({controller, Controller}, _From, State) ->
 
 handle_call({receiver, Receiver}, _From, #{data := Queue} = State) ->
     send_pending(Receiver, queue:out(Queue)),
-    {reply, ok, State#{receiver => Receiver, phase => connected, data := queue:new()}};
+    {reply, ok, set_phase(State#{receiver => Receiver, data := queue:new()}, connected)};
 
 handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
 %% @private
+
+handle_cast(tick, #{phase := handshake, node := Node} = State) ->
+    ?LOG_INFO("connected to ~s", [Node]),
+    handle_cast(tick, State#{phase => connected});
 
 handle_cast(tick, #{sent := Sent} = State) ->
     {_Result, Size} = publish(keep_alive, State),
@@ -155,9 +166,7 @@ handle_info({#'basic.deliver'{}
                       }) ->
     gen_server:reply(Pid, {ok, self()}),
     {amqp_dist, confirmed} = decode(Payload),
-    {noreply, State#{remote_queue => Queue
-                    ,phase => handshake
-                    }};
+    {noreply, set_phase(State#{remote_queue => Queue}, handshake)};
 
 handle_info({#'basic.deliver'{}
             ,#amqp_msg{props = #'P_basic'{reply_to = Queue}
@@ -208,6 +217,15 @@ handle_info({'EXIT', _Pid, 'killed'}, State) ->
 
 handle_info({'EXIT', _Pid, _Reason}, State) ->
     {stop, normal, State};
+
+handle_info({terminate_on_phase, Phase}, #{phase := Phase, action := Action} = State) ->
+    ?LOG_INFO("terminate on identical phase ~s with action ~s", [Phase, Action]),
+    catch(stop_node(State)),
+    {stop, normal, State};
+
+handle_info({terminate_on_phase, Phase1}, #{phase := Phase2, action := Action} = State) ->
+    ?LOG_INFO("terminate on different phase ~s/~s with action ~s", [Phase1, Phase2, Action]),
+    {noreply, State};
 
 handle_info(Msg, State) ->
     logger:info("unhandled info : ~p : ~p", [Msg, State]),
@@ -271,8 +289,8 @@ connected(Pid, Receiver) ->
 stats(Pid) ->
     gen_server:call(Pid, stats).
 
-setup(Pid, Action) ->
-    gen_server:call(Pid, {setup, Action}).
+setup(Pid) ->
+    gen_server:call(Pid, setup).
 
 controller(Pid, Controller) ->
     gen_server:call(Pid, {controller, Controller}).
@@ -300,17 +318,25 @@ start_amqp_fold(Fun, State) ->
     end.
 
 open_channel(State = #{connection := Connection}) ->
-    {ok, Channel} = amqp_connection:open_channel(
-                        Connection, {amqp_direct_consumer, [self()]}),
+    {ok, Channel} = amqp_connection:open_channel(Connection, {amqp_direct_consumer, [self()]}),
     State#{channel => Channel
           ,channel_ref => erlang:monitor(process, Channel)
           ,connection_ref => erlang:monitor(process, Connection)
           }.
 
+queue_declare_cmd(Broker) ->
+    #'queue.declare'{exclusive = true
+                    ,auto_delete = true
+                    ,queue = queue_name(Broker)
+                    }.
+
+queue_name(#{connection_label := undefined, node := Node, action := Action}) ->
+    list_to_binary(["amqp_dist_node-", atom_to_list(node()), "-", atom_to_list(Action), "-", atom_to_list(Node), "-", pid_to_list(self())]);
+queue_name(#{connection_label := Label, node := Node, action := Action}) ->
+    list_to_binary(["amqp_dist_node-", atom_to_list(Label), "-", atom_to_list(node()), "-", atom_to_list(Action), "-", atom_to_list(Node), "-", pid_to_list(self())]).
+
 declare_queue(State = #{channel := Channel}) ->
-    #'queue.declare_ok'{queue = Q} =
-        amqp_channel:call(Channel, #'queue.declare'{exclusive   = true,
-                                                    auto_delete = true}),
+    #'queue.declare_ok'{queue = Q} = amqp_channel:call(Channel, queue_declare_cmd(State)),
     State#{queue => Q}.
 
 consume_queue(State = #{channel := Channel, queue := Q}) ->
@@ -326,3 +352,9 @@ stop_node(#{channel := Channel, consumer_tag := ConsumerTag}) ->
         amqp_channel:call(Channel, #'basic.cancel'{consumer_tag = ConsumerTag}),
     amqp_channel:unregister_return_handler(Channel),
     catch(amqp_channel:close(Channel)).
+
+set_phase(State, handshake = Phase) ->
+    Ref = erlang:send_after(?PHASE_CHECK_INTERVAL, self(), {terminate_on_phase, handshake}),
+    State#{phase => Phase, check_phase_timer_ref => Ref};
+set_phase(State, Phase) ->
+    State#{phase => Phase}.
