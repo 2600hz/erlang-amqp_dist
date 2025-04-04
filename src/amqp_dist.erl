@@ -108,8 +108,8 @@ start_accept(Kernel, Listen) ->
 
 accept_loop(Kernel, Listen) ->
     receive
-        {connection, Node, Connection, Queue} ->
-            Kernel ! {accept, self(), {Node, Connection, Queue, Listen}, amqp, amqp},
+        {connection, Tag, Node, Connection, Queue} ->
+            Kernel ! {accept, self(), {Tag, Node, Connection, Queue, Listen}, amqp, amqp},
             receive
                 {Kernel, controller, SupervisorPid} ->
                     SupervisorPid ! {self(), controller};
@@ -128,8 +128,8 @@ accept_connection(AcceptPid, Params, MyNode, Allowed, SetupTime) ->
           [self(), AcceptPid, Params, MyNode, Allowed, SetupTime],
           [link, {priority, max}]).
 
-do_accept(Kernel, AcceptPid, {Node, Connection, Queue, _Listen}, MyNode, Allowed, SetupTime) ->
-    {ok, Pid} = amqp_dist_acceptor:accept({Node, Connection, Queue}),
+do_accept(Kernel, AcceptPid, {Tag, Node, Connection, Queue, _Listen}, MyNode, Allowed, SetupTime) ->
+    {ok, Pid} = amqp_dist_acceptor:accept({Tag, Node, Connection, Queue}),
     DistCtrl = spawn_dist_cntrlr(Pid),
     call_ctrlr(DistCtrl, {supervisor, self()}),
     amqp_dist_node:controller(Pid, self()),
