@@ -3,6 +3,7 @@
               {description,"amqp protocol distribution"},
               {env,[
                   {heartbeat_period_ms, 30000},
+                  {heartbeat_timeout_ms, 45000},
                   {connection_timeout_ms, 10000},
                   {pause_before_reconnect_ms, 3500},
                   {server_call_timeout_ms, 750}

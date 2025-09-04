@@ -20,6 +20,7 @@
 -export([start/2]).
 
 -export([add_broker/1, add_broker/2]).
+-export([parameter/1, set_parameter/2]).
 -export([nodes/0]).
 -export([is_up/1, connect/1, accept/1]).
 -export([stop/0, stop/1]).
@@ -27,6 +28,7 @@
 
 -define(CONNECTION_TIMEOUT, parameter(connection_timeout_ms)).
 -define(HEARTBEAT_PERIOD, parameter(heartbeat_period_ms)).
+-define(HEARTBEAT_TIMEOUT, parameter(heartbeat_timeout_ms)).
 -define(RECONNECT_AFTER, parameter(pause_before_reconnect_ms)).
 -define(GEN_SERVER_CALL_TIMEOUT, parameter(server_call_timeout_ms)).
 
@@ -58,7 +60,6 @@ init([Kernel, Name]) ->
     link(Kernel),
     process_flag(trap_exit, true),
     erlang:send_after(6000, self(), expire),
-    Env = application:get_all_env(amqp_dist),
     self() ! 'start',
     Node = list_to_binary([atom_to_binary(Name, utf8), "@"
                           ,inet_db:gethostname(), ".", inet_db:res_option(domain)
@@ -69,7 +70,6 @@ init([Kernel, Name]) ->
           ,pids => #{}
           ,consumer_tags => #{}
           ,this => Node
-          ,env => Env
           ,brokers => #{}
           ,node_started_at => os:system_time(microsecond)
           }
@@ -210,7 +210,7 @@ handle_info({'heartbeat', Ref, Uri}, #{connections := Connections} = State) ->
     end;
 
 handle_info('start', State) ->
-    spawn(fun() -> start_connections(State) end),
+    spawn(fun() -> start_connections() end),
     {noreply, State};
 
 handle_info({#'basic.consume'{}, _Pid}, State) ->
@@ -266,10 +266,11 @@ handle_info({started, #{uri := Uri
     ConsumerTags = maps:get(consumer_tags, State, #{}),
     Refs = maps:get(refs, State, #{}),
     Pids = maps:get(pids, State, #{}),
+
     Broker = #{consumer_tag := ConsumerTag
               ,connection_ref := ConnectionRef
               ,channel_ref := ChannelRef
-              } = start_heartbeat(Broker0),
+              } = handle_started_routines(Broker0),
 
     {noreply, State#{connections => Connections#{Uri => Broker}
                     ,consumer_tags => ConsumerTags#{ConsumerTag => Uri}
@@ -314,7 +315,7 @@ expire_node(Node, Data, {Now, Nodes}=Acc) ->
     end.
 
 expire_connection(Pid, #{time := Time}=Connection, {Now, Connections}=Acc) ->
-    case Now - Time > ?CONNECTION_TIMEOUT of
+    case Now - Time > ?HEARTBEAT_TIMEOUT of
         true -> Acc;
         false -> {Now, Connections#{Pid => Connection}}
     end.
@@ -400,12 +401,36 @@ consume_queue(Broker = #{channel := Channel, queue := Q}) ->
 return_handler(#{channel := Channel, server := Server}) ->
     amqp_channel:register_return_handler(Channel, Server).
 
-start_heartbeat(Broker = #{uri := Uri, connection := Connection, channel := Channel}) ->
+handle_started_routines(Broker = #{}) ->
+    Routines = [fun start_monitor/1
+               ,fun start_heartbeat/1
+               ],
+    lists:foldl(fun handle_started_routine/2, Broker, Routines).
+
+handle_started_routine(Fun, Broker) -> Fun(Broker).
+
+start_monitor(Broker = #{connection := Connection, channel := Channel}) ->
     ConnectionRef = erlang:monitor(process, Connection),
     ChannelRef = erlang:monitor(process, Channel),
+    Broker#{connection_ref => ConnectionRef, channel_ref => ChannelRef}.
+
+start_heartbeat(Broker = #{connection_label := Label}) ->
+    case parameter(heartbeat_labels) of
+        undefined ->
+            do_start_heartbeat(Broker);
+        Labels ->
+            case lists:member(Label, Labels) of
+                true -> do_start_heartbeat(Broker);
+                false -> Broker
+            end
+    end;
+start_heartbeat(Broker = #{}) ->
+    do_start_heartbeat(Broker).
+
+do_start_heartbeat(Broker = #{uri := Uri}) ->
     Reference = erlang:make_ref(),
     erlang:send_after(?HEARTBEAT_PERIOD, self(), {'heartbeat', Reference, Uri}),
-    Broker#{heartbeat => Reference, connection_ref => ConnectionRef, channel_ref => ChannelRef}.
+    Broker#{heartbeat => Reference}.
 
 start_broker(Label, Uri, Params, #{node_started_at := Start}) ->
     case amqp_connection_start(Params) of
@@ -553,7 +578,7 @@ decode(Bin) ->
 publish(#{heartbeat := false}) -> 'ok';
 publish(#{state := error}) ->
     ?LOG_INFO("not publishing due to connection error");
-publish(#{channel := Channel, queue := Q, exchange := X, node_started_at := Start}) ->
+publish(#{channel := Channel, queue := Q, exchange := X, node_started_at := Start, connection_label := Label}) ->
     Props = #'P_basic'{correlation_id = atom_to_binary(node(), utf8)
                       ,reply_to = Q
                       ,timestamp = os:system_time(microsecond)
@@ -562,7 +587,14 @@ publish(#{channel := Channel, queue := Q, exchange := X, node_started_at := Star
                                  ]
                       },
     Publish = #'basic.publish'{exchange = X},
+    log_publishing_ping(parameter(log_publishing_ping_to_label), Label),
     catch amqp_channel:call(Channel, Publish, #amqp_msg{props = Props}).
+
+log_publishing_ping(_, undefined) -> ok;
+log_publishing_ping(true, Label) ->
+    ?LOG_INFO("publishing distribution ping to ~s", [Label]);
+log_publishing_ping(_Other, _Label) -> ok.
+
 
 stop() ->
     gen_server:call(?MODULE, stop).
@@ -570,9 +602,8 @@ stop() ->
 stop(Pid) ->
     gen_server:call(Pid, stop).
 
-start_connections(#{env := Env}) ->
-    URIs = proplists:get_value(connections, Env, []),
-    lists:foreach(fun add_broker/1, URIs).
+start_connections() ->
+    lists:foreach(fun add_broker/1, parameter(connections)).
 
 maybe_connect(0, {Node, RemoteStarted, LocalStarted}) ->
     maybe_connect(Node, RemoteStarted, LocalStarted);
@@ -647,7 +678,15 @@ add_broker(Label, Uri, Params, #{brokers := Brokers} = State) ->
 parameter(Param) ->
     application:get_env(amqp_dist, Param, default_value(Param)).
 
+default_value(connections) -> [];
 default_value(connection_timeout_ms) -> 10000;
+default_value(heartbeat_labels) -> undefined;
+default_value(heartbeat_timeout_ms) -> 60000;
 default_value(heartbeat_period_ms) -> 45000;
-default_value(pause_before_reconnect_ms) -> 3500;
-default_value(server_call_timeout_ms) -> 750.
+default_value(pause_before_reconnect_ms) -> 15000;
+default_value(server_call_timeout_ms) -> 750;
+default_value(log_publishing_ping_to_label) -> false;
+default_value(_) -> undefined.
+
+set_parameter(Param, Value) ->
+    application:set_env(amqp_dist, Param, Value).

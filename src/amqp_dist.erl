@@ -24,6 +24,7 @@
 %% api
 
 -export([add_broker/1, add_brokers/1]).
+-export([heartbeat_labels/0, set_heartbeat_labels/1]).
 -export([nodes/0]).
 -export([is_up/1]). 
   
@@ -61,6 +62,10 @@ add_broker(Uri) ->
 
 nodes() ->
     amqp_dist_acceptor:nodes().
+
+heartbeat_labels() -> amqp_dist_acceptor:parameter(heartbeat_labels).
+
+set_heartbeat_labels(Labels) -> amqp_dist_acceptor:set_parameter(heartbeat_labels, Labels).
 
 is_up(Node) ->
     amqp_dist_acceptor:is_up(Node).

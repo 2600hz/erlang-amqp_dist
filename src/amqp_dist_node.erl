@@ -218,13 +218,13 @@ handle_info({'EXIT', _Pid, 'killed'}, State) ->
 handle_info({'EXIT', _Pid, _Reason}, State) ->
     {stop, normal, State};
 
-handle_info({terminate_on_phase, Phase}, #{phase := Phase, action := Action} = State) ->
-    ?LOG_INFO("terminate on identical phase ~s with action ~s", [Phase, Action]),
+handle_info({terminate_on_phase, Phase}, #{phase := Phase, action := Action, node := Node} = State) ->
+    ?LOG_INFO("terminate on identical phase ~s with action ~s for node ~s", [Phase, Action, Node]),
     catch(stop_node(State)),
     {stop, normal, State};
 
-handle_info({terminate_on_phase, Phase1}, #{phase := Phase2, action := Action} = State) ->
-    ?LOG_INFO("terminate on different phase ~s/~s with action ~s", [Phase1, Phase2, Action]),
+handle_info({terminate_on_phase, Phase1}, #{phase := Phase2, action := Action, node := Node} = State) ->
+    ?LOG_DEBUG("terminate on different phase ~s/~s with action ~s for node ~s", [Phase1, Phase2, Action, Node]),
     {noreply, State};
 
 handle_info(Msg, State) ->
