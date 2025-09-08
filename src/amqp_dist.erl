@@ -25,6 +25,7 @@
 
 -export([add_broker/1, add_brokers/1]).
 -export([heartbeat_labels/0, set_heartbeat_labels/1]).
+-export([parameter/1, set_parameter/2]).
 -export([nodes/0]).
 -export([is_up/1]). 
   
@@ -63,12 +64,18 @@ add_broker(Uri) ->
 nodes() ->
     amqp_dist_acceptor:nodes().
 
-heartbeat_labels() -> amqp_dist_acceptor:parameter(heartbeat_labels).
+heartbeat_labels() -> parameter(heartbeat_labels).
 
-set_heartbeat_labels(Labels) -> amqp_dist_acceptor:set_parameter(heartbeat_labels, Labels).
+set_heartbeat_labels(Labels) -> set_parameter(heartbeat_labels, Labels).
 
 is_up(Node) ->
     amqp_dist_acceptor:is_up(Node).
+
+set_parameter(Param, Value) ->
+    amqp_dist_acceptor:set_parameter(Param, Value).
+
+parameter(Param) ->
+    amqp_dist_acceptor:parameter(Param).
 
 %% ------------------------------------------------------------
 %%  Select this protocol based on node name

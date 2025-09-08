@@ -49,25 +49,34 @@ publish(Data, #{channel := Channel, queue := Q, exchange := X, remote_queue := R
 %% @private
 init([Connection, Label, Node, Queue, Action]) ->
     process_flag(trap_exit, true),
-    {ok, start_amqp(#{phase => init
-                     ,remote_queue => Queue
-                     ,node => Node
-                     ,connection => Connection
-                     ,connection_label => Label
-                     ,exchange => <<>>
-                     ,data => queue:new()
-                     ,sent => 0
-                     ,recv => 0
-                     ,action => Action
-                     })}.
+    start_amqp(#{phase => init
+                ,remote_queue => Queue
+                ,node => Node
+                ,connection => Connection
+                ,connection_label => Label
+                ,exchange => <<>>
+                ,data => queue:new()
+                ,sent => 0
+                ,recv => 0
+                ,action => Action
+                }).
 
 %% Closes the channel this gen_server instance started
 %% @private
-terminate(shutdown, _State) -> ok;
-terminate(killed, _State) -> ok;
-terminate(_Reason, State) ->
+terminate(shutdown, State) ->
+    log_termination(shutdown, State),
+    ok;
+terminate(killed, State) ->
+    log_termination(killed, State),
+    ok;
+terminate(Reason, State) ->
     catch(stop_node(State)),
+    log_termination(Reason, State),
     ok.
+
+log_termination(normal, _State) -> ok;
+log_termination(Reason, #{phase := Phase, action := Action, node := Node}) ->
+    ?LOG_DEBUG("~s for node ~s terminated in ~s phase => ~p", [Action, Node, Phase, Reason]).
 
 %% Handle the application initiated stop by just stopping this gen server
 %% @private
@@ -112,7 +121,7 @@ handle_call({controller, Controller}, _From, State) ->
 
 handle_call({receiver, Receiver}, _From, #{data := Queue} = State) ->
     send_pending(Receiver, queue:out(Queue)),
-    {reply, ok, set_phase(State#{receiver => Receiver, data := queue:new()}, connected)};
+    {reply, ok, set_phase(State#{receiver => Receiver, receiver_ref => erlang:monitor(process, Receiver), data := queue:new()}, connected)};
 
 handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
@@ -199,36 +208,60 @@ handle_info({#'basic.deliver'{}
     end,
     {noreply, State#{recv => Recv + byte_size(Payload)}};
 
+handle_info({'DOWN', ControllerRef, process, Controller, _Info}
+           ,#{controller := Controller, controller_ref := ControllerRef} = State) ->
+    ?LOG_INFO("controller ~p went down => ~p", [Controller, _Info]),
+    {stop, normal, State};
+
+handle_info({'DOWN', ReceiverRef, process, Receiver, _Info}
+           ,#{receiver := Receiver, receiver_ref := ReceiverRef} = State) ->
+    ?LOG_INFO("receiver ~p went down => ~p", [Receiver, _Info]),
+    {stop, normal, State};
+
+handle_info({'DOWN', ChannelRef, process, Channel, _Info}
+           ,#{channel := Channel, channel_ref := ChannelRef} = State) ->
+    ?LOG_WARNING("channel ~p went down => ~p", [Channel, _Info]),
+    {noreply, State#{heartbeat => false}};
+
+handle_info({'DOWN', ConnectionRef, process, Connection, _Info}
+           ,#{connection := Connection, connection_ref := ConnectionRef} = State) ->
+    ?LOG_WARNING("connection ~p went down => ~p", [Connection, _Info]),
+    {stop, normal, State};
+
 handle_info({'DOWN', _Ref, process, _Pid, 'shutdown'}, State) ->
+    ?LOG_INFO("pid ~p was shutdown => ~p", [_Pid, State]),
     {noreply, State#{heartbeat => false}};
 
 handle_info({'DOWN', _Ref, process, _Pid, 'killed'}, State) ->
+    ?LOG_INFO("pid ~p was killed", [_Pid]),
     {noreply, State#{heartbeat => false}};
 
-handle_info({'DOWN', ControllerRef, process, Controller, _Info}
-           ,#{controller := Controller, controller_ref := ControllerRef} = State) ->
-    {stop, normal, State};
+handle_info({'DOWN', _Ref, process, _Pid, _Info}, State) ->
+    ?LOG_INFO("pid ~p went down => ~p", [_Pid, _Info]),
+    {noreply, State#{heartbeat => false}};
 
 handle_info({'EXIT', _Pid, 'shutdown'}, State) ->
-    {noreply, State#{heartbeat => false}};
+    ?LOG_INFO("pid ~p exit with shutdown", [_Pid]),
+    {stop, normal, State};
 
 handle_info({'EXIT', _Pid, 'killed'}, State) ->
-    {noreply, State#{heartbeat => false}};
+    ?LOG_INFO("pid ~p exit with killed", [_Pid]),
+    {stop, normal, State};
 
 handle_info({'EXIT', _Pid, _Reason}, State) ->
+    ?LOG_INFO("pid ~p exit with reason => ~p", [_Pid, _Reason]),
     {stop, normal, State};
 
-handle_info({terminate_on_phase, Phase}, #{phase := Phase, action := Action, node := Node} = State) ->
-    ?LOG_INFO("terminate on identical phase ~s with action ~s for node ~s", [Phase, Action, Node]),
-    catch(stop_node(State)),
+handle_info({terminate_if_phase, Phase}, #{phase := Phase, action := Action, node := Node} = State) ->
+    ?LOG_INFO("terminate ~s on stalled ~s phase for node ~s", [Action, Phase, Node]),
     {stop, normal, State};
 
-handle_info({terminate_on_phase, Phase1}, #{phase := Phase2, action := Action, node := Node} = State) ->
-    ?LOG_DEBUG("terminate on different phase ~s/~s with action ~s for node ~s", [Phase1, Phase2, Action, Node]),
+handle_info({terminate_if_phase, Phase}, #{action := Action, node := Node} = State) ->
+    ?LOG_INFO("~s ~s succeeded for node ~s", [Action, Phase, Node]),
     {noreply, State};
 
 handle_info(Msg, State) ->
-    logger:info("unhandled info : ~p : ~p", [Msg, State]),
+    ?LOG_INFO("unhandled info : ~p : ~p", [Msg, State]),
     {noreply, State}.
 
 
@@ -309,7 +342,13 @@ start_amqp(State) ->
                ,fun declare_queue/1
                ,fun consume_queue/1
                ],
-    lists:foldl(fun start_amqp_fold/2, State, Routines).
+    try
+        {ok, lists:foldl(fun start_amqp_fold/2, State, Routines)}
+    catch
+        Class:Exception:Stacktrace ->
+            ?LOG_ALERT("error starting dist node => ~p", [{Class,Exception,Stacktrace}]),
+            {error, Exception}
+    end.
 
 start_amqp_fold(Fun, State) ->
     case Fun(State) of
@@ -354,7 +393,7 @@ stop_node(#{channel := Channel, consumer_tag := ConsumerTag}) ->
     catch(amqp_channel:close(Channel)).
 
 set_phase(State, handshake = Phase) ->
-    Ref = erlang:send_after(?PHASE_CHECK_INTERVAL, self(), {terminate_on_phase, handshake}),
+    Ref = erlang:send_after(?PHASE_CHECK_INTERVAL, self(), {terminate_if_phase, handshake}),
     State#{phase => Phase, check_phase_timer_ref => Ref};
 set_phase(State, Phase) ->
     State#{phase => Phase}.

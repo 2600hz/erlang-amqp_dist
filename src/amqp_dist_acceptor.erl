@@ -32,6 +32,16 @@
 -define(RECONNECT_AFTER, parameter(pause_before_reconnect_ms)).
 -define(GEN_SERVER_CALL_TIMEOUT, parameter(server_call_timeout_ms)).
 
+-define(milliseconds_in_second, 1000).
+-define(microseconds_in_second, 1000000).
+-define(min_uptime_on_reconnect, parameter(min_uptime_on_reconnect_sec)).
+-define(max_uptime_on_reconnect, parameter(max_uptime_on_reconnect_sec)).
+-define(min_downtime_on_reconnect, parameter(min_downptime_on_reconnect_sec)).
+-define(max_downtime_on_reconnect, parameter(max_downtime_on_reconnect_sec)).
+-define(uptime_factor, parameter(uptime_factor)).
+-define(downtime_factor, parameter(downtime_factor)).
+-define(auto_connect_nodes, parameter(auto_connect_nodes)).
+
 start(Kernel, Name) ->
     gen_server:start({local, ?MODULE}, ?MODULE, [Kernel, Name], []).
 
@@ -162,7 +172,8 @@ handle_info({#'basic.deliver'{consumer_tag = ConsumerTag
                 ,queue => Queue
                 ,latency => Latency
                 },
-        maybe_connect(maps:size(NodeData), {Node, RemoteStarted, LocalStarted}),
+        UriTime = maps:get(Uri, maps:get(time, State, #{}), undefined),
+        maybe_connect(UriTime, Node, RemoteStarted, LocalStarted),
         {noreply, State#{nodes => Nodes#{Node => NodeData#{uris => NodeUris#{Uri => Data}, node_started_at => RemoteStarted}}}}
     catch
         _E:_R -> {noreply, State}
@@ -272,14 +283,14 @@ handle_info({started, #{uri := Uri
               ,channel_ref := ChannelRef
               } = handle_started_routines(Broker0),
 
+    Time = maps:get(time, State, #{}),
+    UriTime = maps:get(Uri, Time, #{}),
+
     {noreply, State#{connections => Connections#{Uri => Broker}
                     ,consumer_tags => ConsumerTags#{ConsumerTag => Uri}
-                    ,refs => Refs#{ConnectionRef => Uri
-                                  ,ChannelRef => Uri
-                                  }
-                    ,pids => Pids#{Connection => Uri
-                                  ,Channel => Uri
-                                  }
+                    ,refs => Refs#{ConnectionRef => Uri, ChannelRef => Uri}
+                    ,pids => Pids#{Connection => Uri, Channel => Uri}
+                    ,time => maps:put(Uri, update_uri_downtime(UriTime), Time)
                     }
     };
 
@@ -605,25 +616,39 @@ stop(Pid) ->
 start_connections() ->
     lists:foreach(fun add_broker/1, parameter(connections)).
 
-maybe_connect(0, {Node, RemoteStarted, LocalStarted}) ->
+maybe_connect(undefined, Node, RemoteStarted, LocalStarted) ->
     maybe_connect(Node, RemoteStarted, LocalStarted);
-maybe_connect(_, _) -> ok.
-    
-maybe_connect(Node, RemoteStarted, LocalStarted)
-  when RemoteStarted < LocalStarted ->
-  case lists:member(Node, erlang:nodes()) of
-      true -> ok;
-      false -> auto_connect(Node)
-  end;
+maybe_connect(#{last_uptime := LastUptime, last_downtime := LastDowntime, connected_at := ConnectedAt}, Node, RemoteStarted, LocalStarted) ->
+    Now = erlang:monotonic_time(microsecond),
+    ElapsedInSeconds = (ConnectedAt - Now) div ?microseconds_in_second,
+    LastUptimeInSeconds = LastUptime div ?microseconds_in_second,
+    LastDowntimeInSeconds = LastDowntime div ?microseconds_in_second,
+    case ElapsedInSeconds > ?min_uptime_on_reconnect
+        andalso (LastUptimeInSeconds * ?uptime_factor < ElapsedInSeconds orelse LastUptimeInSeconds > ?max_uptime_on_reconnect)
+        andalso (LastDowntimeInSeconds * ?downtime_factor < ElapsedInSeconds orelse LastDowntimeInSeconds > ?max_downtime_on_reconnect)
+    of
+        true -> maybe_connect(Node, RemoteStarted, LocalStarted);
+        false -> ok
+    end;
+maybe_connect(#{}, Node, RemoteStarted, LocalStarted) ->
+    maybe_connect(Node, RemoteStarted, LocalStarted).
+
 maybe_connect(Node, Started, Started) ->
-    case Node < node()
+    case ?auto_connect_nodes
+        andalso Node < node()
         andalso not lists:member(Node, erlang:nodes())
     of
         true -> auto_connect(Node);
         false -> ok
     end;
-maybe_connect(_Node, _RemoteStarted, _LocalStarted) ->
-    ok.
+maybe_connect(Node, RemoteStarted, LocalStarted) ->
+  case ?auto_connect_nodes
+      andalso LocalStarted < RemoteStarted
+      andalso not lists:member(Node, erlang:nodes())
+    of
+      true -> auto_connect(Node);
+      false -> ok
+  end.
 
 auto_connect(Node) ->
     spawn(auto_connect_fun(Node)).
@@ -634,7 +659,6 @@ auto_connect_fun(Node) ->
     end.
 
 connect_node(Node) ->
-    timer:sleep(2500),
     handle_connect_result(net_kernel:connect_node(Node), Node).
 
 handle_connect_result(true, Node) ->
@@ -661,11 +685,38 @@ remove(Uri, _Pid, #{refs := Refs, consumer_tags := ConsumerTags, pids := Pids} =
      } = Broker,
     catch(stop_amqp(Broker#{no_cancel => true})),
     erlang:send_after(5000, self(), {reconnect, Label, Uri, Params}),
+    Time = maps:get(time, State, #{}),
+    UriTime = maps:get(Uri, Time, #{}),
     State#{connections => maps:without([Uri], Connections)
           ,refs => maps:without([ConnectionRef, ChannelRef], Refs)
           ,consumer_tags => maps:without([ConsumerTag], ConsumerTags)
           ,pids => maps:without([Connection, Channel], Pids)
+          ,time => maps:put(Uri, update_uri_uptime(UriTime), Time)
           }.
+
+update_uri_downtime(#{disconnected_at := Disconnected} = UriTime) ->
+    Now = erlang:monotonic_time(millisecond),
+    DownTime = Now - Disconnected,
+    Update = #{connected_at => Now
+              ,last_downtime => DownTime
+              ,downtimes => maps:put(Now, DownTime, maps:get(downtimes, UriTime, #{}))
+              },
+    maps:merge(UriTime, Update);
+update_uri_downtime(#{} = UriTime) ->
+    Now = erlang:monotonic_time(microsecond),
+    maps:put(connected_at, Now, UriTime).
+
+update_uri_uptime(#{connected_at := Connected} = UriTime) ->
+    Now = erlang:monotonic_time(microsecond),
+    UpTime = Now - Connected,
+    Update = #{disconnected_at => Now
+              ,last_uptime => UpTime
+              ,uptimes => maps:put(Now, UpTime, maps:get(uptimes, UriTime, #{}))
+              },
+    maps:merge(UriTime, Update);
+update_uri_uptime(#{} = UriTime) ->
+    Now = erlang:monotonic_time(microsecond),
+    maps:put(disconnected_at, Now, UriTime).
 
 add_broker(Label, Uri, Params, #{brokers := Brokers} = State) ->
     case maps:get(Uri, Brokers, undefined) of
@@ -678,6 +729,7 @@ add_broker(Label, Uri, Params, #{brokers := Brokers} = State) ->
 parameter(Param) ->
     application:get_env(amqp_dist, Param, default_value(Param)).
 
+default_value(auto_connect_nodes) -> true;
 default_value(connections) -> [];
 default_value(connection_timeout_ms) -> 10000;
 default_value(heartbeat_labels) -> undefined;
@@ -686,6 +738,12 @@ default_value(heartbeat_period_ms) -> 45000;
 default_value(pause_before_reconnect_ms) -> 15000;
 default_value(server_call_timeout_ms) -> 750;
 default_value(log_publishing_ping_to_label) -> false;
+default_value(min_uptime_on_reconnect_sec) -> 20;
+default_value(max_uptime_on_reconnect_sec) -> 120;
+default_value(min_downtime_on_reconnect_sec) -> 20;
+default_value(max_downtime_on_reconnect_sec) -> 120;
+default_value(uptime_factor) -> 1.5;
+default_value(downtime_factor) -> 1.5;
 default_value(_) -> undefined.
 
 set_parameter(Param, Value) ->
