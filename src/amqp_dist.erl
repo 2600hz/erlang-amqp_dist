@@ -387,7 +387,11 @@ dist_cntrlr_setup_loop(Pid, TickHandler, Sup) ->
             From ! {Ref, ok},
             dist_cntrlr_setup_loop(Pid, TickHandler, Sup);
 
-        {Ref, From, {handshake_complete, _Node, DHandle}} ->
+        {Ref, From, {handshake_complete, Node, DHandle}} ->
+
+            %% amqp_dist_node must agree
+            ok = amqp_dist_node:handshake_complete(Pid, Node),
+
             From ! {Ref, ok},
             %% Handshake complete! Begin dispatching traffic...
 

@@ -7,8 +7,13 @@
 
 -export([start/5]).
 
--export([init/1, terminate/2, code_change/3, handle_call/3,
-         handle_cast/2, handle_info/2]).
+-export([init/1
+        ,terminate/2
+        ,code_change/3
+        ,handle_call/3
+        ,handle_cast/2
+        ,handle_info/2
+        ]).
 
 
 -export([send/2
@@ -19,6 +24,7 @@
         ,setup/1
         ,controller/2
         ,receiver/2
+        ,handshake_complete/2
         ]).
 
 -define(PHASE_CHECK_INTERVAL, 20000).
@@ -88,6 +94,14 @@ handle_call(recv, _From, #{data := Data} = State) ->
         {{value, Value}, Q} -> {reply, {ok, Value}, State#{data => Q}};
         {empty, Q} -> {reply, {error, empty}, State#{data => Q}}
     end;
+
+handle_call({handshake_complete, Node}, _From, #{phase := handshake, node := Node} = State) ->
+    ?LOG_INFO("handshake succeeded for node ~s", [Node]),
+    {reply, ok, State};
+
+handle_call({handshake_complete, HNode}, _From, #{phase := Phase, node := Node} = State) ->
+    ?LOG_ERROR("handshake complete for node ~s with wrong local data ~p", [HNode, {Phase, Node}]),
+    {reply, {error, wrong_state_or_pid}, State};
 
 handle_call({send, Data}, _From, #{sent := Sent} = State) ->
     {Result, Size} = publish(Data, State),
@@ -256,8 +270,11 @@ handle_info({terminate_if_phase, Phase}, #{phase := Phase, action := Action, nod
     ?LOG_INFO("terminate ~s on stalled ~s phase for node ~s", [Action, Phase, Node]),
     {stop, normal, State};
 
-handle_info({terminate_if_phase, Phase}, #{action := Action, node := Node} = State) ->
-    ?LOG_INFO("~s ~s succeeded for node ~s", [Action, Phase, Node]),
+handle_info({terminate_if_phase, _Phase}, State) ->
+    {noreply, State};
+
+handle_info({handshake_complete, Node}, #{phase := handshake, node := Node} = State) ->
+    ?LOG_INFO("handshake succeeded for node ~s", [Node]),
     {noreply, State};
 
 handle_info(Msg, State) ->
@@ -397,3 +414,6 @@ set_phase(State, handshake = Phase) ->
     State#{phase => Phase, check_phase_timer_ref => Ref};
 set_phase(State, Phase) ->
     State#{phase => Phase}.
+
+handshake_complete(Pid, Node) ->
+    gen_server:call(Pid, {handshake_complete, Node}).
