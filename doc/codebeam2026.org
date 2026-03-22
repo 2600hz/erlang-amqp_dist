@@ -188,6 +188,7 @@ Handles two AMQP message types:
 - AMQP-based can simplify setup if you already have it in your infra
 ** Thanks
 - =amqp_dist=: https://github.com/2600hz/erlang-amqp_dist
+- Alternative Erlang Distribution: https://www.erlang.org/doc/apps/erts/alt_dist.html
 
 #+begin_center
 Questions?
