@@ -5,13 +5,13 @@
 -behaviour(gen_server).
 
 -export([
-         init/1,
-         handle_call/3,
-         handle_cast/2,
-         handle_info/2,
-         terminate/2,
-         code_change/3
-        ]).
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 -compile({no_auto_import, [nodes/0]}).
 
@@ -73,22 +73,22 @@ init([Kernel, Name]) ->
     erlang:send_after(6000, self(), expire),
     self() ! 'start',
     Node = list_to_binary([
-                           atom_to_binary(Name, utf8),
-                           "@",
-                           inet_db:gethostname(),
-                           ".",
-                           inet_db:res_option(domain)
-                          ]),
+        atom_to_binary(Name, utf8),
+        "@",
+        inet_db:gethostname(),
+        ".",
+        inet_db:res_option(domain)
+    ]),
     {ok, #{
-           kernel => Kernel,
-           nodes => #{},
-           connections => #{},
-           pids => #{},
-           consumer_tags => #{},
-           this => Node,
-           brokers => #{},
-           node_started_at => os:system_time(microsecond)
-          }}.
+        kernel => Kernel,
+        nodes => #{},
+        connections => #{},
+        pids => #{},
+        consumer_tags => #{},
+        this => Node,
+        brokers => #{},
+        node_started_at => os:system_time(microsecond)
+    }}.
 
 handle_call({add_broker, Label, Uri, Params}, _From, State) ->
     case add_broker(Label, Uri, Params, State) of
@@ -140,28 +140,28 @@ handle_info(expire, #{nodes := Nodes} = State) ->
     erlang:send_after(3000, self(), expire),
     {noreply, State#{nodes => NewNodes}};
 handle_info(
-  {#'basic.deliver'{}, #amqp_msg{props = #'P_basic'{correlation_id = This}}},
-  State = #{this := This}
- ) ->
+    {#'basic.deliver'{}, #amqp_msg{props = #'P_basic'{correlation_id = This}}},
+    State = #{this := This}
+) ->
     {noreply, State};
 %% @private
 handle_info(
-  {
-   #'basic.deliver'{
-      consumer_tag = ConsumerTag,
-      exchange = <<"amq.headers">>
-     },
-   #amqp_msg{
-      props = #'P_basic'{
-                 correlation_id = Id,
-                 reply_to = Queue,
-                 timestamp = Published,
-                 headers = Headers
-                }
-     }
-  },
-  State = #{nodes := Nodes, node_started_at := LocalStarted}
- ) ->
+    {
+        #'basic.deliver'{
+            consumer_tag = ConsumerTag,
+            exchange = <<"amq.headers">>
+        },
+        #amqp_msg{
+            props = #'P_basic'{
+                correlation_id = Id,
+                reply_to = Queue,
+                timestamp = Published,
+                headers = Headers
+            }
+        }
+    },
+    State = #{nodes := Nodes, node_started_at := LocalStarted}
+) ->
     try
         {<<"node.start">>, _, RemoteStarted} = lists:keyfind(<<"node.start">>, 1, Headers),
         #{consumer_tags := #{ConsumerTag := Uri}} = State,
@@ -171,48 +171,48 @@ handle_info(
         NodeData = maps:get(Node, Nodes, #{}),
         NodeUris = maps:get(uris, NodeData, #{}),
         Data = #{
-                 time => erlang:system_time(millisecond),
-                 queue => Queue,
-                 latency => Latency
-                },
+            time => erlang:system_time(millisecond),
+            queue => Queue,
+            latency => Latency
+        },
         UriTime = maps:get(Uri, maps:get(time, State, #{}), undefined),
         maybe_connect(UriTime, Node, RemoteStarted, LocalStarted),
         {noreply, State#{
-                         nodes => Nodes#{
-                                         Node => NodeData#{uris => NodeUris#{Uri => Data}, node_started_at => RemoteStarted}
-                                        }
-                        }}
+            nodes => Nodes#{
+                Node => NodeData#{uris => NodeUris#{Uri => Data}, node_started_at => RemoteStarted}
+            }
+        }}
     catch
         _E:_R -> {noreply, State}
     end;
 handle_info(
-  {
-   #'basic.deliver'{
-      consumer_tag = ConsumerTag,
-      exchange = <<>>,
-      routing_key = Queue
-     },
-   #amqp_msg{
-      props = #'P_basic'{
-                 correlation_id = NodeId,
-                 reply_to = RemoteQueue
-                },
-      payload = Payload
-     }
-  },
-  State = #{acceptor := Acceptor}
- ) ->
+    {
+        #'basic.deliver'{
+            consumer_tag = ConsumerTag,
+            exchange = <<>>,
+            routing_key = Queue
+        },
+        #amqp_msg{
+            props = #'P_basic'{
+                correlation_id = NodeId,
+                reply_to = RemoteQueue
+            },
+            payload = Payload
+        }
+    },
+    State = #{acceptor := Acceptor}
+) ->
     try
         #{consumer_tags := #{ConsumerTag := Uri}} = State,
         #{
-          connections := #{
-                           Uri := #{
-                                    queue := Queue,
-                                    connection := Connection,
-                                    connection_label := Label
-                                   }
-                          }
-         } = State,
+            connections := #{
+                Uri := #{
+                    queue := Queue,
+                    connection := Connection,
+                    connection_label := Label
+                }
+            }
+        } = State,
         Node = binary_to_atom(NodeId, utf8),
         {amqp_dist, connect} = decode(Payload),
         Acceptor ! {connection, Label, Node, Connection, RemoteQueue},
@@ -243,9 +243,9 @@ handle_info({#'basic.consume'{}, _Pid}, State) ->
 handle_info(#'basic.consume_ok'{}, State) ->
     {noreply, State};
 handle_info(
-  #'basic.cancel'{consumer_tag = ConsumerTag, nowait = _NoWait},
-  #{consumer_tags := ConsumerTags} = State
- ) ->
+    #'basic.cancel'{consumer_tag = ConsumerTag, nowait = _NoWait},
+    #{consumer_tags := ConsumerTags} = State
+) ->
     case maps:get(ConsumerTag, ConsumerTags, undefined) of
         undefined -> {noreply, State};
         Uri -> {noreply, remove(Uri, State)}
@@ -277,14 +277,14 @@ handle_info({reconnect, Label, Uri, Params}, State) ->
     start_broker(Label, Uri, Params, State),
     {noreply, State};
 handle_info(
-  {started,
-   #{
-     uri := Uri,
-     connection := Connection,
-     channel := Channel
-    } = Broker0},
-  State
- ) ->
+    {started,
+        #{
+            uri := Uri,
+            connection := Connection,
+            channel := Channel
+        } = Broker0},
+    State
+) ->
     Connections = maps:get(connections, State, #{}),
     ConsumerTags = maps:get(consumer_tags, State, #{}),
     Refs = maps:get(refs, State, #{}),
@@ -292,21 +292,21 @@ handle_info(
 
     Broker =
         #{
-          consumer_tag := ConsumerTag,
-          connection_ref := ConnectionRef,
-          channel_ref := ChannelRef
-         } = handle_started_routines(Broker0),
+            consumer_tag := ConsumerTag,
+            connection_ref := ConnectionRef,
+            channel_ref := ChannelRef
+        } = handle_started_routines(Broker0),
 
     Time = maps:get(time, State, #{}),
     UriTime = maps:get(Uri, Time, #{}),
 
     {noreply, State#{
-                     connections => Connections#{Uri => Broker},
-                     consumer_tags => ConsumerTags#{ConsumerTag => Uri},
-                     refs => Refs#{ConnectionRef => Uri, ChannelRef => Uri},
-                     pids => Pids#{Connection => Uri, Channel => Uri},
-                     time => maps:put(Uri, update_uri_downtime(UriTime), Time)
-                    }};
+        connections => Connections#{Uri => Broker},
+        consumer_tags => ConsumerTags#{ConsumerTag => Uri},
+        refs => Refs#{ConnectionRef => Uri, ChannelRef => Uri},
+        pids => Pids#{Connection => Uri, Channel => Uri},
+        time => maps:put(Uri, update_uri_downtime(UriTime), Time)
+    }};
 handle_info(_Info, State) ->
     ?LOG_DEBUG("unhandled message : ~p => ~p", [_Info, State]),
     {noreply, State}.
@@ -333,8 +333,8 @@ expire(Nodes) ->
 
 expire_node(Node, Data, {Now, Nodes} = Acc) ->
     {Now, NewConnections} = maps:fold(
-                              fun expire_connection/3, {Now, #{}}, maps:get(uris, Data, #{})
-                             ),
+        fun expire_connection/3, {Now, #{}}, maps:get(uris, Data, #{})
+    ),
     case maps:size(NewConnections) of
         0 -> Acc;
         _ -> {Now, Nodes#{Node => Data#{uris => NewConnections}}}
@@ -384,12 +384,12 @@ accept({Label, Node, Connection, Queue}) ->
     amqp_dist_node:start(Connection, Label, Node, Queue, 'accept').
 
 open_channel(
-  Broker = #{
-             connection := Connection,
-             uri := Uri,
-             server := Pid
-            }
- ) ->
+    Broker = #{
+        connection := Connection,
+        uri := Uri,
+        server := Pid
+    }
+) ->
     ?LOG_INFO("opening channel  ~s : ~p : ~p", [Uri, Connection, Pid]),
     {ok, Channel} = amqp_connection:open_channel(Connection, {amqp_direct_consumer, [Pid]}),
     ?LOG_INFO("channel opened  ~s : ~p : ~p : ~p", [Uri, Connection, Pid, Channel]),
@@ -397,32 +397,32 @@ open_channel(
     ConnectionRef = erlang:monitor(process, Connection),
 
     Broker#{
-            channel => Channel,
-            channel_ref => ChannelRef,
-            connection_ref => ConnectionRef
-           }.
+        channel => Channel,
+        channel_ref => ChannelRef,
+        connection_ref => ConnectionRef
+    }.
 
 set_exchange(Broker) ->
     Broker#{exchange => <<"amq.headers">>}.
 
 queue_declare_cmd(Broker) ->
     #'queue.declare'{
-       exclusive = true,
-       auto_delete = true,
-       queue = queue_name(Broker)
-      }.
+        exclusive = true,
+        auto_delete = true,
+        queue = queue_name(Broker)
+    }.
 
 queue_name(#{connection_label := undefined}) ->
     list_to_binary(["amqp_dist_acceptor-", atom_to_list(node()), "-", pid_to_list(self())]);
 queue_name(#{connection_label := Label}) ->
     list_to_binary([
-                    "amqp_dist_acceptor-",
-                    atom_to_list(Label),
-                    "-",
-                    atom_to_list(node()),
-                    "-",
-                    pid_to_list(self())
-                   ]).
+        "amqp_dist_acceptor-",
+        atom_to_list(Label),
+        "-",
+        atom_to_list(node()),
+        "-",
+        pid_to_list(self())
+    ]).
 
 declare_queue(Broker = #{channel := Channel}) ->
     #'queue.declare_ok'{queue = Q} = amqp_channel:call(Channel, queue_declare_cmd(Broker)),
@@ -431,10 +431,10 @@ declare_queue(Broker = #{channel := Channel}) ->
 bind_queue(Broker = #{channel := Channel, exchange := Exchange, queue := Q}) ->
     #'queue.bind_ok'{} =
         amqp_channel:call(Channel, #'queue.bind'{
-                                      queue = Q,
-                                      exchange = Exchange,
-                                      arguments = [{<<"distribution.ping">>, bool, true}]
-                                     }),
+            queue = Q,
+            exchange = Exchange,
+            arguments = [{<<"distribution.ping">>, bool, true}]
+        }),
     Broker.
 
 consume_queue(Broker = #{channel := Channel, queue := Q}) ->
@@ -447,9 +447,9 @@ return_handler(#{channel := Channel, server := Server}) ->
 
 handle_started_routines(Broker = #{}) ->
     Routines = [
-                fun start_monitor/1,
-                fun start_heartbeat/1
-               ],
+        fun start_monitor/1,
+        fun start_heartbeat/1
+    ],
     lists:foldl(fun handle_started_routine/2, Broker, Routines).
 
 handle_started_routine(Fun, Broker) -> Fun(Broker).
@@ -482,13 +482,13 @@ start_broker(Label, Uri, Params, #{node_started_at := Start}) ->
         {ok, Pid} ->
             ?LOG_INFO("started connection to ~s : ~p", [Uri, Pid]),
             Broker = #{
-                       params => Params,
-                       connection => Pid,
-                       connection_label => Label,
-                       uri => Uri,
-                       node_started_at => Start,
-                       server => self()
-                      },
+                params => Params,
+                connection => Pid,
+                connection_label => Label,
+                uri => Uri,
+                node_started_at => Start,
+                server => self()
+            },
             spawn(fun() -> start_amqp(Broker) end);
         Error ->
             ?LOG_WARNING("connection start returned => ~p", [Error]),
@@ -505,22 +505,22 @@ amqp_connection_start(Params) ->
     end.
 
 start_amqp(
-  #{
-    uri := Uri,
-    server := Server,
-    connection := Connection,
-    connection_label := Label,
-    params := Params
-   } = Broker0
- ) ->
+    #{
+        uri := Uri,
+        server := Server,
+        connection := Connection,
+        connection_label := Label,
+        params := Params
+    } = Broker0
+) ->
     Routines = [
-                fun open_channel/1,
-                fun return_handler/1,
-                fun set_exchange/1,
-                fun declare_queue/1,
-                fun bind_queue/1,
-                fun consume_queue/1
-               ],
+        fun open_channel/1,
+        fun return_handler/1,
+        fun set_exchange/1,
+        fun declare_queue/1,
+        fun bind_queue/1,
+        fun consume_queue/1
+    ],
     try
         Broker = lists:foldl(fun broker_fold/2, Broker0, Routines),
         Server ! {started, Broker}
@@ -540,20 +540,20 @@ broker_fold(Fun, Broker) ->
 
 stop_amqp(Broker) ->
     Routines = [
-                fun stop_amqp_log/1,
-                fun cancel_heartbeat/1,
-                fun remove_monitors/1,
-                fun cancel_consume/1,
-                fun unregister_handler/1,
-                fun close_channel/1,
-                fun close_connection/1
-               ],
+        fun stop_amqp_log/1,
+        fun cancel_heartbeat/1,
+        fun remove_monitors/1,
+        fun cancel_consume/1,
+        fun unregister_handler/1,
+        fun close_channel/1,
+        fun close_connection/1
+    ],
     lists:foldl(fun broker_fold/2, Broker, Routines).
 
 stop_amqp_log(#{
-                connection := Connection,
-                channel := Channel
-               }) ->
+    connection := Connection,
+    channel := Channel
+}) ->
     ?LOG_INFO("closing connection ~p : ~p", [Connection, Channel]);
 stop_amqp_log(#{connection := Connection}) ->
     ?LOG_INFO("closing connection ~p", [Connection]).
@@ -567,19 +567,19 @@ cancel_heartbeat(Broker) ->
 cancel_consume(Broker = #{no_cancel := true}) ->
     maps:without([consumer_tag, no_cancel], Broker);
 cancel_consume(
-  Broker = #{
-             connection := Connection,
-             channel := Channel,
-             consumer_tag := ConsumerTag
-            }
- ) when
-      is_pid(Connection) andalso
-      is_pid(Channel)
-      ->
+    Broker = #{
+        connection := Connection,
+        channel := Channel,
+        consumer_tag := ConsumerTag
+    }
+) when
+    is_pid(Connection) andalso
+        is_pid(Channel)
+->
     _ =
         case
             is_process_alive(Connection) andalso
-            is_process_alive(Channel)
+                is_process_alive(Channel)
         of
             true ->
                 #'basic.cancel_ok'{consumer_tag = ConsumerTag} =
@@ -592,25 +592,25 @@ cancel_consume(Broker) ->
     maps:without([consumer_tag, no_cancel], Broker).
 
 remove_monitors(
-  Broker = #{
-             channel_ref := ChannelRef,
-             connection_ref := ConnectionRef
-            }
- ) ->
+    Broker = #{
+        channel_ref := ChannelRef,
+        connection_ref := ConnectionRef
+    }
+) ->
     erlang:demonitor(ChannelRef),
     erlang:demonitor(ConnectionRef),
     maps:without([channel_ref, connection_ref], Broker).
 
 unregister_handler(#{
-                     connection := Connection,
-                     channel := Channel
-                    }) when
-      is_pid(Connection) andalso
-      is_pid(Channel)
-      ->
+    connection := Connection,
+    channel := Channel
+}) when
+    is_pid(Connection) andalso
+        is_pid(Channel)
+->
     case
         is_process_alive(Connection) andalso
-        is_process_alive(Channel)
+            is_process_alive(Channel)
     of
         true -> amqp_channel:unregister_return_handler(Channel);
         false -> ok
@@ -623,18 +623,18 @@ close_connection(Broker = #{connection := Connection}) ->
     maps:without([connection], Broker).
 
 close_channel(
-  Broker = #{
-             connection := Connection,
-             channel := Channel
-            }
- ) when
-      is_pid(Connection) andalso
-      is_pid(Channel)
-      ->
+    Broker = #{
+        connection := Connection,
+        channel := Channel
+    }
+) when
+    is_pid(Connection) andalso
+        is_pid(Channel)
+->
     _ =
         case
             is_process_alive(Connection) andalso
-            is_process_alive(Channel)
+                is_process_alive(Channel)
         of
             true -> catch (amqp_channel:close(Channel));
             false -> ok
@@ -652,21 +652,21 @@ publish(#{heartbeat := false}) ->
 publish(#{state := error}) ->
     ?LOG_INFO("not publishing due to connection error");
 publish(#{
-          channel := Channel,
-          queue := Q,
-          exchange := X,
-          node_started_at := Start,
-          connection_label := Label
-         }) ->
+    channel := Channel,
+    queue := Q,
+    exchange := X,
+    node_started_at := Start,
+    connection_label := Label
+}) ->
     Props = #'P_basic'{
-               correlation_id = atom_to_binary(node(), utf8),
-               reply_to = Q,
-               timestamp = os:system_time(microsecond),
-               headers = [
-                          {<<"distribution.ping">>, bool, true},
-                          {<<"node.start">>, timestamp, Start}
-                         ]
-              },
+        correlation_id = atom_to_binary(node(), utf8),
+        reply_to = Q,
+        timestamp = os:system_time(microsecond),
+        headers = [
+            {<<"distribution.ping">>, bool, true},
+            {<<"node.start">>, timestamp, Start}
+        ]
+    },
     Publish = #'basic.publish'{exchange = X},
     log_publishing_ping(parameter(log_publishing_ping_to_label), Label),
     catch amqp_channel:call(Channel, Publish, #amqp_msg{props = Props}).
@@ -687,21 +687,21 @@ start_connections() ->
 maybe_connect(undefined, Node, RemoteStarted, LocalStarted) ->
     maybe_connect(Node, RemoteStarted, LocalStarted);
 maybe_connect(
-  #{last_uptime := LastUptime, last_downtime := LastDowntime, connected_at := ConnectedAt},
-  Node,
-  RemoteStarted,
-  LocalStarted
- ) ->
+    #{last_uptime := LastUptime, last_downtime := LastDowntime, connected_at := ConnectedAt},
+    Node,
+    RemoteStarted,
+    LocalStarted
+) ->
     Now = erlang:monotonic_time(microsecond),
     ElapsedInSeconds = (ConnectedAt - Now) div ?microseconds_in_second,
     LastUptimeInSeconds = LastUptime div ?microseconds_in_second,
     LastDowntimeInSeconds = LastDowntime div ?microseconds_in_second,
     case
         ElapsedInSeconds > ?min_uptime_on_reconnect andalso
-        (LastUptimeInSeconds * ?uptime_factor < ElapsedInSeconds orelse
-         LastUptimeInSeconds > ?max_uptime_on_reconnect) andalso
-        (LastDowntimeInSeconds * ?downtime_factor < ElapsedInSeconds orelse
-         LastDowntimeInSeconds > ?max_downtime_on_reconnect)
+            (LastUptimeInSeconds * ?uptime_factor < ElapsedInSeconds orelse
+                LastUptimeInSeconds > ?max_uptime_on_reconnect) andalso
+            (LastDowntimeInSeconds * ?downtime_factor < ElapsedInSeconds orelse
+                LastDowntimeInSeconds > ?max_downtime_on_reconnect)
     of
         true -> maybe_connect(Node, RemoteStarted, LocalStarted);
         false -> ok
@@ -712,8 +712,8 @@ maybe_connect(#{}, Node, RemoteStarted, LocalStarted) ->
 maybe_connect(Node, Started, Started) ->
     case
         ?auto_connect_nodes andalso
-        Node < node() andalso
-        not lists:member(Node, erlang:nodes())
+            Node < node() andalso
+            not lists:member(Node, erlang:nodes())
     of
         true -> auto_connect(Node);
         false -> ok
@@ -721,8 +721,8 @@ maybe_connect(Node, Started, Started) ->
 maybe_connect(Node, RemoteStarted, LocalStarted) ->
     case
         ?auto_connect_nodes andalso
-        LocalStarted < RemoteStarted andalso
-        not lists:member(Node, erlang:nodes())
+            LocalStarted < RemoteStarted andalso
+            not lists:member(Node, erlang:nodes())
     of
         true -> auto_connect(Node);
         false -> ok
@@ -733,7 +733,7 @@ auto_connect(Node) ->
 
 auto_connect_fun(Node) ->
     fun() ->
-            connect_node(Node)
+        connect_node(Node)
     end.
 
 connect_node(Node) ->
@@ -754,34 +754,34 @@ remove(Uri, State) ->
 remove(Uri, _Pid, #{refs := Refs, consumer_tags := ConsumerTags, pids := Pids} = State) ->
     #{connections := #{Uri := Broker} = Connections} = State,
     #{
-      connection := Connection,
-      connection_label := Label,
-      channel := Channel,
-      consumer_tag := ConsumerTag,
-      connection_ref := ConnectionRef,
-      channel_ref := ChannelRef,
-      params := Params
-     } = Broker,
+        connection := Connection,
+        connection_label := Label,
+        channel := Channel,
+        consumer_tag := ConsumerTag,
+        connection_ref := ConnectionRef,
+        channel_ref := ChannelRef,
+        params := Params
+    } = Broker,
     catch (stop_amqp(Broker#{no_cancel => true})),
     erlang:send_after(5000, self(), {reconnect, Label, Uri, Params}),
     Time = maps:get(time, State, #{}),
     UriTime = maps:get(Uri, Time, #{}),
     State#{
-           connections => maps:without([Uri], Connections),
-           refs => maps:without([ConnectionRef, ChannelRef], Refs),
-           consumer_tags => maps:without([ConsumerTag], ConsumerTags),
-           pids => maps:without([Connection, Channel], Pids),
-           time => maps:put(Uri, update_uri_uptime(UriTime), Time)
-          }.
+        connections => maps:without([Uri], Connections),
+        refs => maps:without([ConnectionRef, ChannelRef], Refs),
+        consumer_tags => maps:without([ConsumerTag], ConsumerTags),
+        pids => maps:without([Connection, Channel], Pids),
+        time => maps:put(Uri, update_uri_uptime(UriTime), Time)
+    }.
 
 update_uri_downtime(#{disconnected_at := Disconnected} = UriTime) ->
     Now = erlang:monotonic_time(millisecond),
     DownTime = Now - Disconnected,
     Update = #{
-               connected_at => Now,
-               last_downtime => DownTime,
-               downtimes => maps:put(Now, DownTime, maps:get(downtimes, UriTime, #{}))
-              },
+        connected_at => Now,
+        last_downtime => DownTime,
+        downtimes => maps:put(Now, DownTime, maps:get(downtimes, UriTime, #{}))
+    },
     maps:merge(UriTime, Update);
 update_uri_downtime(#{} = UriTime) ->
     Now = erlang:monotonic_time(microsecond),
@@ -791,10 +791,10 @@ update_uri_uptime(#{connected_at := Connected} = UriTime) ->
     Now = erlang:monotonic_time(microsecond),
     UpTime = Now - Connected,
     Update = #{
-               disconnected_at => Now,
-               last_uptime => UpTime,
-               uptimes => maps:put(Now, UpTime, maps:get(uptimes, UriTime, #{}))
-              },
+        disconnected_at => Now,
+        last_uptime => UpTime,
+        uptimes => maps:put(Now, UpTime, maps:get(uptimes, UriTime, #{}))
+    },
     maps:merge(UriTime, Update);
 update_uri_uptime(#{} = UriTime) ->
     Now = erlang:monotonic_time(microsecond),

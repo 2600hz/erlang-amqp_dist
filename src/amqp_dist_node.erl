@@ -7,27 +7,27 @@
 -export([start/5]).
 
 -export([
-         init/1,
-         terminate/2,
-         code_change/3,
-         handle_call/3,
-         handle_cast/2,
-         handle_info/2
-        ]).
+    init/1,
+    terminate/2,
+    code_change/3,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2
+]).
 
 -export([
-         send/2,
-         recv/3,
-         tick/1,
-         connected/2,
-         stats/1,
-         setup/1,
-         controller/2,
-         receiver/2,
-         handshake_complete/2,
-         pre_nodeup/1,
-         post_nodeup/1
-        ]).
+    send/2,
+    recv/3,
+    tick/1,
+    connected/2,
+    stats/1,
+    setup/1,
+    controller/2,
+    receiver/2,
+    handshake_complete/2,
+    pre_nodeup/1,
+    post_nodeup/1
+]).
 
 -define(PHASE_CHECK_INTERVAL, 20000).
 
@@ -45,15 +45,15 @@ publish(_Data, #{heartbeat := false}) ->
     {0, 0};
 publish(Data, #{channel := Channel, queue := Q, exchange := X, remote_queue := RK}) ->
     Props = #'P_basic'{
-               correlation_id = atom_to_binary(node(), utf8),
-               reply_to = Q,
-               timestamp = os:system_time(microsecond)
-              },
+        correlation_id = atom_to_binary(node(), utf8),
+        reply_to = Q,
+        timestamp = os:system_time(microsecond)
+    },
     Publish = #'basic.publish'{exchange = X, routing_key = RK, mandatory = true},
     Encoded = encode(Data),
     {
-     amqp_channel:call(Channel, Publish, #amqp_msg{props = Props, payload = Encoded}),
-     byte_size(Encoded)
+        amqp_channel:call(Channel, Publish, #amqp_msg{props = Props, payload = Encoded}),
+        byte_size(Encoded)
     }.
 
 %%--------------------------------------------------------------------------
@@ -61,34 +61,34 @@ publish(Data, #{channel := Channel, queue := Q, exchange := X, remote_queue := R
 %%--------------------------------------------------------------------------
 
 -type state() :: #{
-                   phase => atom(),
-                   remote_queue => binary(),
-                   node => atom(),
-                   connection => pid(),
-                   connection_label => list(),
-                   exchange => binary(),
-                   data => queue:queue(),
-                   sent => non_neg_integer(),
-                   recv => non_neg_integer(),
-                   action => 'connect' | 'accept'
-                  }.
+    phase => atom(),
+    remote_queue => binary(),
+    node => atom(),
+    connection => pid(),
+    connection_label => list(),
+    exchange => binary(),
+    data => queue:queue(),
+    sent => non_neg_integer(),
+    recv => non_neg_integer(),
+    action => 'connect' | 'accept'
+}.
 
 %% Sets up a reply queue and consumer within an existing channel
 %% @private
 init([Connection, Label, Node, Queue, Action]) ->
     process_flag(trap_exit, true),
     start_amqp(#{
-                 phase => init,
-                 remote_queue => Queue,
-                 node => Node,
-                 connection => Connection,
-                 connection_label => Label,
-                 exchange => <<>>,
-                 data => queue:new(),
-                 sent => 0,
-                 recv => 0,
-                 action => Action
-                }).
+        phase => init,
+        remote_queue => Queue,
+        node => Node,
+        connection => Connection,
+        connection_label => Label,
+        exchange => <<>>,
+        data => queue:new(),
+        sent => 0,
+        recv => 0,
+        action => Action
+    }).
 
 %% Closes the channel this gen_server instance started
 %% @private
@@ -151,19 +151,19 @@ handle_call(setup, _From, #{action := accept} = State) ->
 handle_call({controller, Controller}, _From, State) ->
     link(Controller),
     {reply, ok, State#{
-                       controller => Controller, controller_ref => erlang:monitor(process, Controller)
-                      }};
+        controller => Controller, controller_ref => erlang:monitor(process, Controller)
+    }};
 handle_call({receiver, Receiver}, _From, #{data := Queue} = State) ->
     send_pending(Receiver, queue:out(Queue)),
     {reply, ok,
-     set_phase(
-       State#{
-              receiver => Receiver,
-              receiver_ref => erlang:monitor(process, Receiver),
-              data := queue:new()
-             },
-       connected
-      )};
+        set_phase(
+            State#{
+                receiver => Receiver,
+                receiver_ref => erlang:monitor(process, Receiver),
+                data := queue:new()
+            },
+            connected
+        )};
 handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
@@ -199,74 +199,74 @@ handle_info(#'basic.cancel'{}, State) ->
 handle_info(#'basic.cancel_ok'{}, State) ->
     {stop, normal, State};
 handle_info(
-  {#'basic.deliver'{}, #amqp_msg{
-                          props = #'P_basic'{reply_to = Queue},
-                          payload = Payload
-                         }},
-  State = #{
-            phase := init,
-            caller := Pid
-           }
- ) ->
+    {#'basic.deliver'{}, #amqp_msg{
+        props = #'P_basic'{reply_to = Queue},
+        payload = Payload
+    }},
+    State = #{
+        phase := init,
+        caller := Pid
+    }
+) ->
     gen_server:reply(Pid, {ok, self()}),
     {amqp_dist, confirmed} = decode(Payload),
     {noreply, set_phase(State#{remote_queue => Queue}, handshake)};
 handle_info(
-  {#'basic.deliver'{}, #amqp_msg{
-                          props = #'P_basic'{reply_to = Queue},
-                          payload = Payload
-                         }},
-  State = #{
-            phase := handshake,
-            remote_queue := Queue,
-            data := QData,
-            recv := Recv
-           }
- ) ->
+    {#'basic.deliver'{}, #amqp_msg{
+        props = #'P_basic'{reply_to = Queue},
+        payload = Payload
+    }},
+    State = #{
+        phase := handshake,
+        remote_queue := Queue,
+        data := QData,
+        recv := Recv
+    }
+) ->
     Data = decode(Payload),
     {noreply, State#{
-                     recv => Recv + byte_size(Payload),
-                     data => queue:in(Data, QData)
-                    }};
+        recv => Recv + byte_size(Payload),
+        data => queue:in(Data, QData)
+    }};
 handle_info(
-  {#'basic.deliver'{}, #amqp_msg{
-                          props = #'P_basic'{reply_to = Queue},
-                          payload = Payload
-                         }},
-  State = #{
-            phase := connected,
-            remote_queue := Queue,
-            receiver := Receiver,
-            recv := Recv
-           }
- ) ->
+    {#'basic.deliver'{}, #amqp_msg{
+        props = #'P_basic'{reply_to = Queue},
+        payload = Payload
+    }},
+    State = #{
+        phase := connected,
+        remote_queue := Queue,
+        receiver := Receiver,
+        recv := Recv
+    }
+) ->
     case decode(Payload) of
         keep_alive -> ok;
         Data -> Receiver ! {data, self(), Data}
     end,
     {noreply, State#{recv => Recv + byte_size(Payload)}};
 handle_info(
-  {'DOWN', ControllerRef, process, Controller, _Info},
-  #{controller := Controller, controller_ref := ControllerRef} = State
- ) ->
+    {'DOWN', ControllerRef, process, Controller, _Info},
+    #{controller := Controller, controller_ref := ControllerRef} = State
+) ->
     ?LOG_INFO("controller ~p went down => ~p", [Controller, _Info]),
     {stop, normal, State};
 handle_info(
-  {'DOWN', ReceiverRef, process, Receiver, _Info},
-  #{receiver := Receiver, receiver_ref := ReceiverRef} = State
- ) ->
+    {'DOWN', ReceiverRef, process, Receiver, _Info},
+    #{receiver := Receiver, receiver_ref := ReceiverRef} = State
+) ->
     ?LOG_INFO("receiver ~p went down => ~p", [Receiver, _Info]),
     {stop, normal, State};
 handle_info(
-  {'DOWN', ChannelRef, process, Channel, _Info},
-  #{channel := Channel, channel_ref := ChannelRef} = State
- ) ->
+    {'DOWN', ChannelRef, process, Channel, _Info},
+    #{channel := Channel, channel_ref := ChannelRef} = State
+) ->
     ?LOG_WARNING("channel ~p went down => ~p", [Channel, _Info]),
     {noreply, State#{heartbeat => false}};
 handle_info(
-  {'DOWN', ConnectionRef, process, Connection, _Info},
-  #{connection := Connection, connection_ref := ConnectionRef} = State
- ) ->
+    {'DOWN', ConnectionRef, process, Connection, _Info},
+    #{connection := Connection, connection_ref := ConnectionRef} = State
+) ->
     ?LOG_WARNING("connection ~p went down => ~p", [Connection, _Info]),
     {stop, normal, State};
 handle_info({'DOWN', _Ref, process, _Pid, 'shutdown'}, State) ->
@@ -315,16 +315,16 @@ recv(Pid, Length, Timeout) ->
     recv(Pid, Length, 0, [], {erlang:system_time(millisecond), Timeout}).
 
 recv(_Pid, 0, Collected, Acc, _Timeout) when
-      Collected > 0
-      ->
+    Collected > 0
+->
     {ok, Acc};
 recv(_Pid, Length, Length, Acc, _Timeout) when
-      Length > 0
-      ->
+    Length > 0
+->
     {ok, Acc};
 recv(_Pid, _Length, _Collected, _Acc, {_, Timeout}) when
-      is_integer(Timeout) andalso Timeout =< 0
-      ->
+    is_integer(Timeout) andalso Timeout =< 0
+->
     {error, timeout};
 recv(Pid, Length, Collected, Acc, Timeout) ->
     case gen_server:call(Pid, recv, 'infinity') of
@@ -376,11 +376,11 @@ send_pending(_Receiver, {empty, _Queue}) ->
 -spec start_amqp(state()) -> {ok, state()}.
 start_amqp(State) ->
     Routines = [
-                fun open_channel/1,
-                fun return_handler/1,
-                fun declare_queue/1,
-                fun consume_queue/1
-               ],
+        fun open_channel/1,
+        fun return_handler/1,
+        fun declare_queue/1,
+        fun consume_queue/1
+    ],
     try
         {ok, lists:foldl(fun start_amqp_fold/2, State, Routines)}
     catch
@@ -398,43 +398,43 @@ start_amqp_fold(Fun, State) ->
 open_channel(State = #{connection := Connection}) ->
     {ok, Channel} = amqp_connection:open_channel(Connection, {amqp_direct_consumer, [self()]}),
     State#{
-           channel => Channel,
-           channel_ref => erlang:monitor(process, Channel),
-           connection_ref => erlang:monitor(process, Connection)
-          }.
+        channel => Channel,
+        channel_ref => erlang:monitor(process, Channel),
+        connection_ref => erlang:monitor(process, Connection)
+    }.
 
 queue_declare_cmd(Broker) ->
     #'queue.declare'{
-       exclusive = true,
-       auto_delete = true,
-       queue = queue_name(Broker)
-      }.
+        exclusive = true,
+        auto_delete = true,
+        queue = queue_name(Broker)
+    }.
 
 %% action is 'connect' | 'accept'
 queue_name(#{connection_label := undefined, node := Node, action := Action}) ->
     list_to_binary([
-                    "amqp_dist_node-",
-                    atom_to_list(node()),
-                    "-",
-                    atom_to_list(Action),
-                    "-",
-                    atom_to_list(Node),
-                    "-",
-                    pid_to_list(self())
-                   ]);
+        "amqp_dist_node-",
+        atom_to_list(node()),
+        "-",
+        atom_to_list(Action),
+        "-",
+        atom_to_list(Node),
+        "-",
+        pid_to_list(self())
+    ]);
 queue_name(#{connection_label := Label, node := Node, action := Action}) ->
     list_to_binary([
-                    "amqp_dist_node-",
-                    atom_to_list(Label),
-                    "-",
-                    atom_to_list(node()),
-                    "-",
-                    atom_to_list(Action),
-                    "-",
-                    atom_to_list(Node),
-                    "-",
-                    pid_to_list(self())
-                   ]).
+        "amqp_dist_node-",
+        atom_to_list(Label),
+        "-",
+        atom_to_list(node()),
+        "-",
+        atom_to_list(Action),
+        "-",
+        atom_to_list(Node),
+        "-",
+        pid_to_list(self())
+    ]).
 
 declare_queue(State = #{channel := Channel}) ->
     #'queue.declare_ok'{queue = Q} = amqp_channel:call(Channel, queue_declare_cmd(State)),
