@@ -40,21 +40,27 @@ Managing sockets (listening and accepting connections)
 
 * DistErl over AMQP
 ** Why use AMQP
-Traditional EPMD-based distribution creates direct connections between connecting nodes, creating either a fully-connected mesh or (using hidden nodes) a hub-spoke arrangement.
+Traditional distribution creates direct TCP connections between connecting nodes, creating either a fully-connected mesh or (using hidden nodes) a hub-spoke arrangement.
 
 With AMQP, each node instead connects to the AMQP broker (we recommend RabbitMQ obviously), and inter-node traffic flows through the broker via exchanges, queues and their bindings.
 
-While this introduces the AMQP broker as a potential SPOF (single point of failure), presumably the broker is already part of your application's infrastructure and thus not introducing new risks.
+While this introduces the AMQP broker as a potential SPOF (single point of failure), presumably the broker is already part of your application's infrastructure and thus not introducing new risks. Additionally, =amqp_dist= supports multiple brokers and clustered RabbitMQ is also possible.
 
-The benefits include interesting routing options now and more observability of inter-node communication in a single place (the broker).
+The benefits include interesting routing options and more observability of inter-node communication in a single place (the broker).
 
 ** Node Startup
 When the node =foo@bar.com= starts up, it would publish its presence to an pre-determined exchange
 
 ** Inter-node communication
-Instead of TCP-based "connect to IP =A= on port =B=", nodes will "publish to exchange =A= with routing key =B=" where =A= is a direct exchange (where routing key = binding key) and =B= is the routing key of the destination node.
+Per node, using default distribution:
+- Ask EPMD for VM port to use
+- TCP connect to remote IP/port and handshake
+- TCP send/recv messages
 
-
+Using AMQP:
+- Publish heartbeat letting everyone know you're up (remote nodes track heartbeats)
+- Publish connection request to remote node's queue (if not configured to auto-connect)
+- Publish/consume messages to/from remote node's queue established after handeshake
 
 * amqp_dist
 ** BEAM startup requirements

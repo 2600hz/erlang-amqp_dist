@@ -39,7 +39,7 @@ start(Connection, Label, Node, Queue, Action) ->
         {ok, Pid} -> setup(Pid);
         Error -> Error
     end.
-            
+
 
 publish(_Data, #{heartbeat := false}) -> {0, 0};
 publish(Data, #{channel := Channel, queue := Q, exchange := X, remote_queue := RK}) ->
@@ -51,6 +51,18 @@ publish(Data, #{channel := Channel, queue := Q, exchange := X, remote_queue := R
 %%--------------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------------
+
+-type state() :: #{phase => atom()
+                  ,remote_queue => binary()
+                  ,node => atom()
+                  ,connection => pid()
+                  ,connection_label => list()
+                  ,exchange => binary()
+                  ,data => queue:queue()
+                  ,sent :: non_neg_integer()
+                  ,recv :: non_neg_integer()
+                  ,action :: 'connect' | 'accept'
+                  }.
 
 %% Sets up a reply queue and consumer within an existing channel
 %% @private
@@ -138,7 +150,7 @@ handle_call(setup, _From, #{action := accept} = State) ->
     publish({amqp_dist, confirmed}, State),
     {reply, {ok, self()}, set_phase(State, handshake)};
 
-handle_call({controller, Controller}, _From, State) ->    
+handle_call({controller, Controller}, _From, State) ->
     link(Controller),
     {reply, ok, State#{controller => Controller, controller_ref => erlang:monitor(process, Controller)}};
 
@@ -193,9 +205,9 @@ handle_info({#'basic.deliver'{}
                       ,payload = Payload
                       }
             }
-            ,State = #{phase := init
-                      ,caller := Pid
-                      }) ->
+           ,State = #{phase := init
+                     ,caller := Pid
+                     }) ->
     gen_server:reply(Pid, {ok, self()}),
     {amqp_dist, confirmed} = decode(Payload),
     {noreply, set_phase(State#{remote_queue => Queue}, handshake)};
@@ -205,11 +217,11 @@ handle_info({#'basic.deliver'{}
                       ,payload = Payload
                       }
             }
-            ,State = #{phase := handshake
-                      ,remote_queue := Queue
-                      ,data := QData
-                      ,recv := Recv
-                      }) ->
+           ,State = #{phase := handshake
+                     ,remote_queue := Queue
+                     ,data := QData
+                     ,recv := Recv
+                     }) ->
     Data = decode(Payload),
     {noreply, State#{recv => Recv + byte_size(Payload)
                     ,data => queue:in(Data, QData)
@@ -220,11 +232,11 @@ handle_info({#'basic.deliver'{}
                       ,payload = Payload
                       }
             }
-            ,State = #{phase := connected
-                      ,remote_queue := Queue
-                      ,receiver := Receiver
-                      ,recv := Recv
-                      }) ->
+           ,State = #{phase := connected
+                     ,remote_queue := Queue
+                     ,receiver := Receiver
+                     ,recv := Recv
+                     }) ->
     case decode(Payload) of
         keep_alive -> ok;
         Data -> Receiver ! {data, self(), Data}
@@ -321,7 +333,7 @@ recv(Pid, Length, Collected, Acc, Timeout) ->
         {ok, Data} when is_binary(Data) ->
             LData = Acc ++ binary_to_list(Data),
             recv(Pid, Length, length(LData), LData, decr_timeout(Timeout));
-       {ok, Data} when is_list(Data) ->
+        {ok, Data} when is_list(Data) ->
             LData = Acc ++ Data,
             recv(Pid, Length, length(LData), LData, decr_timeout(Timeout));
         {error, empty} ->
@@ -358,10 +370,11 @@ receiver(Pid, Receiver) ->
     gen_server:call(Pid, {receiver, Receiver}).
 
 send_pending(Receiver, {{value, Value}, Queue}) ->
-     Receiver ! {data, self(), Value},
-     send_pending(Receiver, queue:out(Queue));
+    Receiver ! {data, self(), Value},
+    send_pending(Receiver, queue:out(Queue));
 send_pending(_Receiver, {empty, _Queue}) -> ok.
 
+-spec start_amqp(state()) -> {ok, state()}.
 start_amqp(State) ->
     Routines = [fun open_channel/1
                ,fun return_handler/1
@@ -378,8 +391,8 @@ start_amqp(State) ->
 
 start_amqp_fold(Fun, State) ->
     case Fun(State) of
-       #{} = Map -> Map;
-       _ -> State
+        #{} = Map -> Map;
+        _ -> State
     end.
 
 open_channel(State = #{connection := Connection}) ->
@@ -395,6 +408,7 @@ queue_declare_cmd(Broker) ->
                     ,queue = queue_name(Broker)
                     }.
 
+%% action is 'connect' | 'accept'
 queue_name(#{connection_label := undefined, node := Node, action := Action}) ->
     list_to_binary(["amqp_dist_node-", atom_to_list(node()), "-", atom_to_list(Action), "-", atom_to_list(Node), "-", pid_to_list(self())]);
 queue_name(#{connection_label := Label, node := Node, action := Action}) ->
