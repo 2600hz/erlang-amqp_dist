@@ -4,7 +4,7 @@
 #+options: inline:t num:t p:nil pri:nil prop:nil stat:t tags:t
 #+options: tasks:t tex:t timestamp:t title:t toc:t todo:t |:t
 #+title: CodeBEAM 2026: DistErl over AMQP
-#+date: <2026-03-18 Wed>
+#+date: 2026-03-22
 #+author: James Aimonetti
 #+email: james@jamesaimonetti.com
 #+language: en
@@ -44,6 +44,7 @@ James Aimonetti (Eye Moe Net Tea)
 - Send and receive Erlang terms directly between nodes
 - Process location is transparent (encoded in the PID)
 ** Default DistErl
+- Uses gen_tcp for transport
 - Uses a separate program EPMD (Erlang Port Mapper Daemon)
   - Maintains a directory of running VMs on the server and what ports
 
@@ -55,14 +56,14 @@ name node1 at port 38957
 name rabbit at port 25672
 #+end_example
 
-- Remote nodes ask EPMD how to reach a node
+- Remote nodes ask EPMD how to reach an Erlang node
 - Connected nodes over TCP, using cookies for authentication
 - Fully connected mesh (or hub-and-spoke for "hidden" nodes)
 
 ** Why not use EPMD-based DistErl?
 - EPMD provides insight into your internal BEAM VMs, further attack surface
 - Cookie-based auth in VMs isn't for security (read more from [[https://erlef.org/blog/eef/epmd-public-exposure][The EEF]] on how to secure EPMD)
-- Mesh networking doesn't scale well (50 is an oft-repeated limit; 1500 if you have FAANG infra to play with)
+- Mesh networking doesn't scale well (50 is an oft-repeated limit; 1500 if you have global infra to play with)
 - EPMD complicates matters in docker/kubernetes
 - Observing inter-node communication from the outside is challenging
 - More firewall ports to manage
@@ -89,17 +90,24 @@ name rabbit at port 25672
 - Erlang library: https://github.com/2600hz/erlang-amqp_dist
 ** =amqp_dist=
 Configure you AMQP broker(s)
-#+begin_example
-❯ cat config/sys.config
+#+begin_src erlang
 [
   {amqp_dist, [
     {connections, [
         "amqp://guest:guest@localhost:5672"
       ]}
   ]}
-
 ].
-#+end_example
+#+end_src
+** =amqp_dist=
+Using multiple brokers
+#+begin_src erlang
+["amqp://guest:guest@rabbitmq:5676/lx1"
+,"amqp://guest:guest@rabbitmq:5676/lx2"
+,"amqp://guest:guest@rabbitmq:5676/lx3"
+]
+#+end_src
+- Tracks latency stats and will use "best" broker for inter-node connections
 ** =amqp_dist=
 Start some nodes
 #+begin_example
@@ -122,7 +130,41 @@ Start some nodes
   - started after a node handshake is completed
   - handles inter-node message passing
   - Erlang terms are encoded using term_to_binary and base64 encoding before publishing
-** Failure modes
+** =amqp_dist=
+Implements the net_kernel callbacks
+
+- =listen/1= returns a "fake" socket record with amqp_dist_acceptor =pid()=
+- =accept/1= spawns a process to handle incoming connection requests from remote Erlang nodes, notifies amqp_dist_acceptor
+- =accept_connection/5= spawns a process to perform the handshake with the remote Erlang node
+- =setup/5= spawns a process to handle inter-node communication via AMQP
+- =select/1= determines if this dist module should handle connection setup
+** =amqp_dist_acceptor=
+Handles broker connections, DistErl connection requests
+
+Once the broker connection is established:
+1. an AMQP channel is started
+2. the exchange =amq.headers= is configured (for routing on attributes vs routing keys)
+3. an exclusive queue is declared: =list_to_binary(["amqp_dist_acceptor-", atom_to_list(node()), "-", pid_to_list(self())]);=
+   - may include the Label in queue name, if configured
+4. the queue is bound to the exchange with a header argument ={<<"distribution.ping">>, bool, true}=
+5. start consuming from the queue
+
+** =amqp_dist_acceptor=
+When publishing a "node up":
+#+begin_src erlang
+,reply_to = QueueName
+,headers = [{<<"distribution.ping">>, bool, true}
+           ,{<<"node.start">>, timestamp, Start}
+           ]
+#+end_src
+
+** =amqp_dist_acceptor=
+Handles two AMQP message types:
+1. New node is present - receives the heartbeat message from other nodes
+   - can configure =amqp_dist= to auto-connect
+2. New node wants to connect
+
+** Potential issues
 - Broker down: all nodes disconnected
   - KAZOO architecture already has handles for this too
   - Clustered rabbit possible, multi-broker works too
@@ -136,7 +178,9 @@ Start some nodes
 - Inter-node traffic is observable at the broker
 - Piggy-backs on existing infrastructure and knowledge
 - Flexible routing options (currently direct to queue) available
-- Single AMQP port to manage
+- Handles split-brain more gracefully
+- Using modules like =ra= or =pg= more reliable
+- Quite performant for our use
 * Wrapup
 ** AltDistErl
 - Alternative distribution modules are straight-forward to write!
