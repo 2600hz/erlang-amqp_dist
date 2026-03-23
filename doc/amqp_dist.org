@@ -3,13 +3,7 @@
 Erlang nodes need to agree on a way to talk to each other over the
 network. That agreed-upon way is called a distribution protocol.
 
-Erlang ships with a default distribution protocol called EPMD (Erlang
-Port Mapper Daemon). When a node starts up, it registers itself with a
-little helper process (EPMD) running on the same machine, and other
-nodes ask EPMD "hey, how do I reach the node named foo@mymachine?"
-EPMD answers with a port number, and the connection proceeds from
-there. It's a bit like a phone book: you look up a name, get a number,
-dial it.
+Erlang ships with a default distribution protocol =tcp_dist= and leverages another program called EPMD (Erlang Port Mapper Daemon). When a node starts up, it registers itself with a little helper process (EPMD) running on the same machine, and other nodes ask EPMD "hey, how do I reach the node named foo@mymachine?" EPMD answers with a port number, and the connection proceeds from there. It's a bit like a phone book: you look up a name, get a number, dial it.
 
 ** Simplified example
 Malls, business park, etc have directories of what stores or businesses are there and where to find them. The default for most (the EPMD) is a physical board with names and locations on it.
