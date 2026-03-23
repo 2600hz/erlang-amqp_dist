@@ -1,20 +1,25 @@
-{"1.1.0",
-[{<<"amqp_client">>,{pkg,<<"amqp_client">>,<<"3.7.9">>},0},
- {<<"goldrush">>,{pkg,<<"goldrush">>,<<"0.1.9">>},3},
- {<<"jsx">>,{pkg,<<"jsx">>,<<"2.9.0">>},2},
- {<<"lager">>,{pkg,<<"lager">>,<<"3.6.5">>},2},
- {<<"rabbit_common">>,{pkg,<<"rabbit_common">>,<<"3.7.9">>},1},
- {<<"ranch">>,{pkg,<<"ranch">>,<<"1.6.2">>},2},
- {<<"ranch_proxy_protocol">>,{pkg,<<"ranch_proxy_protocol">>,<<"2.1.1">>},2},
- {<<"recon">>,{pkg,<<"recon">>,<<"2.3.6">>},2}]}.
+{"1.2.0",
+[{<<"amqp_client">>,{pkg,<<"amqp_client">>,<<"4.2.1">>},0},
+ {<<"credentials_obfuscation">>,
+  {pkg,<<"credentials_obfuscation">>,<<"3.5.0">>},
+  1},
+ {<<"rabbit_common">>,{pkg,<<"rabbit_common">>,<<"4.2.1">>},1},
+ {<<"ranch">>,{pkg,<<"ranch">>,<<"2.2.0">>},2},
+ {<<"recon">>,{pkg,<<"recon">>,<<"2.5.6">>},2},
+ {<<"thoas">>,{pkg,<<"thoas">>,<<"1.2.1">>},2}]}.
 [
 {pkg_hash,[
- {<<"amqp_client">>, <<"EBEF998500C31D4954E882868806258A9CEBF01DD6C76804B1A2EFDB454753FC">>},
- {<<"goldrush">>, <<"F06E5D5F1277DA5C413E84D5A2924174182FB108DABB39D5EC548B27424CD106">>},
- {<<"jsx">>, <<"D2F6E5F069C00266CAD52FB15D87C428579EA4D7D73A33669E12679E203329DD">>},
- {<<"lager">>, <<"831910109F3FCB503DEBF658CA0538836B348C58BFBF349A6D48228096CE9040">>},
- {<<"rabbit_common">>, <<"542D2EB8EF8F76E5346B30665604D8D63B8D5CF47D1878243CEC44D1642C4435">>},
- {<<"ranch">>, <<"6DB93C78F411EE033DBB18BA8234C5574883ACB9A75AF0FB90A9B82EA46AFA00">>},
- {<<"ranch_proxy_protocol">>, <<"3C4723327166D2D63C0405F4914E2E471C6DE362CC844E9B203AF5763E7C9D25">>},
- {<<"recon">>, <<"2BCAD0CF621FB277CABBB6413159CD3AA30265C2DEE42C968697988B30108604">>}]}
+ {<<"amqp_client">>, <<"CFF0CC13186E57457DC5745F1B3A4127C6857717CB8F5920DC457C84D0AD00A2">>},
+ {<<"credentials_obfuscation">>, <<"61E282ADFB4439486B3994FAAEC69543C7EE6CC7E70C6340E8853FD9DEAF8219">>},
+ {<<"rabbit_common">>, <<"1D64E391E12116B76B1425EB96B7552DE51F0301093EBA669B5334F4759CC1E8">>},
+ {<<"ranch">>, <<"25528F82BC8D7C6152C57666CA99EC716510FE0925CB188172F41CE93117B1B0">>},
+ {<<"recon">>, <<"9052588E83BFEDFD9B72E1034532AEE2A5369D9D9343B61AEB7FBCE761010741">>},
+ {<<"thoas">>, <<"19A25F31177A17E74004D4840F66D791D4298C5738790FA2CC73731EB911F195">>}]},
+{pkg_hash_ext,[
+ {<<"amqp_client">>, <<"8AE00B055A58500E0557F73D9C0FFE257487131E603F7F84FE72CBFAAF03838A">>},
+ {<<"credentials_obfuscation">>, <<"843ADBE3246861CE0F1A0FA3222F384834EB31DEFD8D6B9CBA7AFD2977C957BC">>},
+ {<<"rabbit_common">>, <<"FF509B07E639B1784898C28031E5204FEA14260172E4FC339F94405586037E40">>},
+ {<<"ranch">>, <<"FA0B99A1780C80218A4197A59EA8D3BDAE32FBFF7E88527D7D8A4787EFF4F8E7">>},
+ {<<"recon">>, <<"96C6799792D735CC0F0FD0F86267E9D351E63339CBE03DF9D162010CEFC26BB0">>},
+ {<<"thoas">>, <<"E38697EDFFD6E91BD12CEA41B155115282630075C2A727E7A6B2947F5408B86A">>}]}
 ].

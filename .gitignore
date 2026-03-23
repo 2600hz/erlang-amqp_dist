@@ -1,2 +1,4 @@
 ebin
-
+_build/
+rebar3.*
+doc/*.tex

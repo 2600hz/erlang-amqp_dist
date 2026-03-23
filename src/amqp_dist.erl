@@ -4,7 +4,7 @@
 
 %-define(dist_util,amqp_dist_util).
 
--compile({no_auto_import,[nodes/0]}).
+-compile({no_auto_import, [nodes/0]}).
 
 %%
 %% This is an example of how to plug in an arbitrary distribution
@@ -13,13 +13,14 @@
 %% This module is based on gen_tcp_dist using amqp as the distribution protocol
 %%
 
--export([listen/1
-        ,accept/1
-        ,accept_connection/5
-        ,setup/5
-        ,close/1
-        ,select/1
-        ]).
+-export([
+    listen/1,
+    accept/1,
+    accept_connection/5,
+    setup/5,
+    close/1,
+    select/1
+]).
 
 %% api
 
@@ -27,35 +28,38 @@
 -export([heartbeat_labels/0, set_heartbeat_labels/1]).
 -export([parameter/1, set_parameter/2]).
 -export([nodes/0]).
--export([is_up/1]). 
-  
+-export([is_up/1]).
+
 %% internal exports
 
--export([dist_cntrlr_setup/1
-        ,dist_cntrlr_input_setup/3
-        ,dist_cntrlr_tick_handler/1
-        ]).
+-export([
+    dist_cntrlr_setup/1,
+    dist_cntrlr_input_setup/3,
+    dist_cntrlr_tick_handler/1
+]).
 
--export([start_accept/2
-        ,accept_loop/2
-        ,do_accept/6
-        ,do_setup/6
-        ]).
+-export([
+    start_accept/2,
+    accept_loop/2,
+    do_accept/6,
+    do_setup/6
+]).
 
--import(error_logger,[error_msg/2]).
+-import(error_logger, [error_msg/2]).
 
--record(fake_socket, {read = 0,
-                      write = 0,
-                      pending = 0,
-                      pid = self() :: pid(),
-                      name :: term(),
-                      mypid :: pid()
-                     }).
+-record(fake_socket, {
+    read = 0,
+    write = 0,
+    pending = 0,
+    pid = self() :: pid(),
+    name :: term(),
+    mypid :: pid()
+}).
 
 %% API
 
 add_brokers(Uris) ->
-    [add_broker(Uri)|| Uri <- Uris],
+    [add_broker(Uri) || Uri <- Uris],
     'ok'.
 
 add_broker(Uri) ->
@@ -91,22 +95,23 @@ select(Node) ->
 listen(Name) ->
     case create_acceptor(Name) of
         {ok, Pid} ->
-            {ok, {#fake_socket{name=Name, mypid=Pid}
-                 ,#net_address{address = []
-                              ,host = inet:gethostname()
-                              ,protocol = amqp
-                              ,family = amqp
-                              }
-                 ,3
-                 }
-            };
-        Else -> Else
+            {ok, {
+                #fake_socket{name = Name, mypid = Pid},
+                #net_address{
+                    address = [],
+                    host = inet:gethostname(),
+                    protocol = amqp,
+                    family = amqp
+                },
+                3
+            }};
+        Else ->
+            Else
     end.
 
 create_acceptor(Name) ->
     application:load(amqp_dist),
     amqp_dist_acceptor:start(self(), Name).
-
 
 %% ------------------------------------------------------------
 %% Accepts new connection attempts from other Erlang nodes.
@@ -136,9 +141,12 @@ accept_loop(Kernel, Listen) ->
 %% Performs the handshake with the other side.
 %% ------------------------------------------------------------
 accept_connection(AcceptPid, Params, MyNode, Allowed, SetupTime) ->
-    spawn_opt(?MODULE, do_accept,
-          [self(), AcceptPid, Params, MyNode, Allowed, SetupTime],
-          [link, {priority, max}]).
+    spawn_opt(
+        ?MODULE,
+        do_accept,
+        [self(), AcceptPid, Params, MyNode, Allowed, SetupTime],
+        [link, {priority, max}]
+    ).
 
 do_accept(Kernel, AcceptPid, {Tag, Node, Connection, Queue, _Listen}, MyNode, Allowed, SetupTime) ->
     {ok, Pid} = amqp_dist_acceptor:accept({Tag, Node, Connection, Queue}),
@@ -146,27 +154,31 @@ do_accept(Kernel, AcceptPid, {Tag, Node, Connection, Queue, _Listen}, MyNode, Al
     call_ctrlr(DistCtrl, {supervisor, self()}),
     amqp_dist_node:controller(Pid, self()),
     receive
-    {AcceptPid, controller} ->
-        Timer = dist_util:start_timer(SetupTime),
-        HSData0 = hs_data_common(DistCtrl),
-        HSData = HSData0#hs_data{kernel_pid = Kernel
-                                ,this_node = MyNode
-                                ,socket = DistCtrl
-                                ,timer = Timer
-                                ,this_flags = 0
-                                ,allowed = Allowed
-                                },
-        dist_util:handshake_other_started(HSData)
+        {AcceptPid, controller} ->
+            Timer = dist_util:start_timer(SetupTime),
+            HSData0 = hs_data_common(DistCtrl),
+            HSData = HSData0#hs_data{
+                kernel_pid = Kernel,
+                this_node = MyNode,
+                socket = DistCtrl,
+                timer = Timer,
+                this_flags = 0,
+                allowed = Allowed
+            },
+            dist_util:handshake_other_started(HSData)
     end.
 
 %% ------------------------------------------------------------
 %% Setup a new connection to another Erlang node.
 %% Performs the handshake with the other side.
 %% ------------------------------------------------------------
-setup(Node, Type, MyNode, LongOrShortNames,SetupTime) ->
-    spawn_opt(?MODULE, do_setup, 
-          [self(), Node, Type, MyNode, LongOrShortNames, SetupTime],
-          [link, {priority, max}]).
+setup(Node, Type, MyNode, LongOrShortNames, SetupTime) ->
+    spawn_opt(
+        ?MODULE,
+        do_setup,
+        [self(), Node, Type, MyNode, LongOrShortNames, SetupTime],
+        [link, {priority, max}]
+    ).
 
 do_setup(Kernel, Node, Type, MyNode, _LongOrShortNames, SetupTime) ->
     Timer = dist_util:start_timer(SetupTime),
@@ -177,15 +189,16 @@ do_setup(Kernel, Node, Type, MyNode, _LongOrShortNames, SetupTime) ->
             DistCtrl = spawn_dist_cntrlr(Pid),
             call_ctrlr(DistCtrl, {supervisor, self()}),
             HSData0 = hs_data_common(DistCtrl),
-            HSData = HSData0#hs_data{kernel_pid = Kernel
-                                    ,other_node = Node
-                                    ,this_node = MyNode
-                                    ,socket = DistCtrl
-                                    ,timer = Timer
-                                    ,this_flags = 0
-                                    ,other_version = 5
-                                    ,request_type = Type
-                                    },
+            HSData = HSData0#hs_data{
+                kernel_pid = Kernel,
+                other_node = Node,
+                this_node = MyNode,
+                socket = DistCtrl,
+                timer = Timer,
+                this_flags = 0,
+                other_version = 5,
+                request_type = Type
+            },
             dist_util:handshake_we_started(HSData);
         {error, _Reason} ->
             ?shutdown(Node)
@@ -197,25 +210,26 @@ do_setup(Kernel, Node, Type, MyNode, _LongOrShortNames, SetupTime) ->
 close(Listen) ->
     ?LOG_INFO("close ~p", [Listen]).
 
-
-split_node([Chr|T], Chr, Ack) -> [lists:reverse(Ack)|split_node(T, Chr, [])];
-split_node([H|T], Chr, Ack)   -> split_node(T, Chr, [H|Ack]);
-split_node([], _, Ack)        -> [lists:reverse(Ack)].
+split_node([Chr | T], Chr, Ack) -> [lists:reverse(Ack) | split_node(T, Chr, [])];
+split_node([H | T], Chr, Ack) -> split_node(T, Chr, [H | Ack]);
+split_node([], _, Ack) -> [lists:reverse(Ack)].
 
 hs_data_common(DistCtrl) ->
     TickHandler = call_ctrlr(DistCtrl, tick_handler),
     Pid = call_ctrlr(DistCtrl, pid),
-    #hs_data{f_send = send_fun(),
-             f_recv = recv_fun(),
-             f_setopts_pre_nodeup = setopts_pre_nodeup_fun(),
-             f_setopts_post_nodeup = setopts_post_nodeup_fun(),
-             f_getll = getll_fun(),
-             f_handshake_complete = handshake_complete_fun(),
-             f_address = address_fun(),
-             mf_setopts = setopts_fun(DistCtrl, Pid),
-             mf_getopts = getopts_fun(DistCtrl, Pid),
-             mf_getstat = getstat_fun(DistCtrl, Pid),
-             mf_tick = tick_fun(DistCtrl, TickHandler)}.
+    #hs_data{
+        f_send = send_fun(),
+        f_recv = recv_fun(),
+        f_setopts_pre_nodeup = setopts_pre_nodeup_fun(),
+        f_setopts_post_nodeup = setopts_post_nodeup_fun(),
+        f_getll = getll_fun(),
+        f_handshake_complete = handshake_complete_fun(),
+        f_address = address_fun(),
+        mf_setopts = setopts_fun(DistCtrl, Pid),
+        mf_getopts = getopts_fun(DistCtrl, Pid),
+        mf_getstat = getstat_fun(DistCtrl, Pid),
+        mf_tick = tick_fun(DistCtrl, TickHandler)
+    }.
 
 %%% ------------------------------------------------------------
 %%% Distribution controller processes
@@ -225,85 +239,92 @@ hs_data_common(DistCtrl) ->
 %% we enable off-heap message queue data as well as fullsweep
 %% after 0. The fullsweeps will be cheap since we have more
 %% or less no live data.
--define(DIST_CNTRL_COMMON_SPAWN_OPTS,
-        [{message_queue_data, off_heap},
-         {fullsweep_after, 0}]).
+-define(DIST_CNTRL_COMMON_SPAWN_OPTS, [
+    {message_queue_data, off_heap},
+    {fullsweep_after, 0}
+]).
 
 tick_fun(DistCtrl, TickHandler) ->
-    fun (Ctrl) when Ctrl == DistCtrl ->
-            TickHandler ! tick
+    fun(Ctrl) when Ctrl == DistCtrl ->
+        TickHandler ! tick
     end.
 
 getstat_fun(DistCtrl, Pid) ->
-    fun (Ctrl) when Ctrl == DistCtrl ->
-            amqp_dist_node:stats(Pid)
+    fun(Ctrl) when Ctrl == DistCtrl ->
+        amqp_dist_node:stats(Pid)
     end.
 
 setopts_fun(DistCtrl, Socket) ->
-    fun (Ctrl, Opts) when Ctrl == DistCtrl ->
-            setopts(Socket, Opts)
+    fun(Ctrl, Opts) when Ctrl == DistCtrl ->
+        setopts(Socket, Opts)
     end.
 
 getopts_fun(DistCtrl, Socket) ->
-    fun (Ctrl, Opts) when Ctrl == DistCtrl ->
-            getopts(Socket, Opts)
+    fun(Ctrl, Opts) when Ctrl == DistCtrl ->
+        getopts(Socket, Opts)
     end.
 
 setopts(_S, Opts) ->
-    case [Opt || {K,_}=Opt <- Opts,
-         K =:= active orelse K =:= deliver orelse K =:= packet] of
-    [] -> 'ok'; %%inet:setopts(S,Opts);
-    Opts1 -> {error, {badopts,Opts1}}
+    case
+        [
+            Opt
+         || {K, _} = Opt <- Opts,
+            K =:= active orelse K =:= deliver orelse K =:= packet
+        ]
+    of
+        %%inet:setopts(S,Opts);
+        [] -> 'ok';
+        Opts1 -> {error, {badopts, Opts1}}
     end.
 
 getopts(_S, _Opts) ->
     [].
 
 send_fun() ->
-    fun (Ctrlr, Packet) ->
-             call_ctrlr(Ctrlr, {send, Packet})
+    fun(Ctrlr, Packet) ->
+        call_ctrlr(Ctrlr, {send, Packet})
     end.
 
 recv_fun() ->
-    fun (Ctrlr, Length, Timeout) ->
-           call_ctrlr(Ctrlr, {recv, Length, Timeout})
+    fun(Ctrlr, Length, Timeout) ->
+        call_ctrlr(Ctrlr, {recv, Length, Timeout})
     end.
 
 getll_fun() ->
-    fun (Ctrlr) ->
-            call_ctrlr(Ctrlr, getll)
+    fun(Ctrlr) ->
+        call_ctrlr(Ctrlr, getll)
     end.
 
 address_fun() ->
-    fun (Ctrlr, Node) ->
-            case call_ctrlr(Ctrlr, {address, Node}) of
-                {error, no_node} -> ?shutdown(no_node);
-                Res -> Res
-            end
+    fun(Ctrlr, Node) ->
+        case call_ctrlr(Ctrlr, {address, Node}) of
+            {error, no_node} -> ?shutdown(no_node);
+            Res -> Res
+        end
     end.
 
 get_remote_id(_Socket, Node) ->
     [_, Host] = split_node(atom_to_list(Node), $@, []),
-    #net_address {
-       address = [],
-       host = Host,
-       protocol = amqp,
-       family = amqp
-                 }.
+    #net_address{
+        address = [],
+        host = Host,
+        protocol = amqp,
+        family = amqp
+    }.
 
 setopts_pre_nodeup_fun() ->
-    fun (Ctrlr) ->
-            call_ctrlr(Ctrlr, pre_nodeup)
+    fun(Ctrlr) ->
+        call_ctrlr(Ctrlr, pre_nodeup)
     end.
 
 setopts_post_nodeup_fun() ->
-    fun (Ctrlr) ->
-            call_ctrlr(Ctrlr, post_nodeup)
+    fun(Ctrlr) ->
+        call_ctrlr(Ctrlr, post_nodeup)
     end.
 
 handshake_complete_fun() ->
-    fun (Ctrlr, Node, DHandle) ->
-            call_ctrlr(Ctrlr, {handshake_complete, Node, DHandle})
+    fun(Ctrlr, Node, DHandle) ->
+        call_ctrlr(Ctrlr, {handshake_complete, Node, DHandle})
     end.
 
 call_ctrlr(Ctrlr, Msg) ->
@@ -327,14 +348,21 @@ dist_cntrlr_tick_handler(Pid) ->
     dist_cntrlr_tick_handler(Pid).
 
 spawn_dist_cntrlr(Pid) ->
-    spawn_opt(?MODULE, dist_cntrlr_setup, [Pid],
-              [{priority, max}] ++ ?DIST_CNTRL_COMMON_SPAWN_OPTS).
+    spawn_opt(
+        ?MODULE,
+        dist_cntrlr_setup,
+        [Pid],
+        [{priority, max}] ++ ?DIST_CNTRL_COMMON_SPAWN_OPTS
+    ).
 
 dist_cntrlr_setup(Pid) ->
-    TickHandler = spawn_opt(?MODULE, dist_cntrlr_tick_handler,
-                            [Pid],
-                            [link, {priority, max}] 
-                            ++ ?DIST_CNTRL_COMMON_SPAWN_OPTS),
+    TickHandler = spawn_opt(
+        ?MODULE,
+        dist_cntrlr_tick_handler,
+        [Pid],
+        [link, {priority, max}] ++
+            ?DIST_CNTRL_COMMON_SPAWN_OPTS
+    ),
     dist_cntrlr_setup_loop(Pid, TickHandler, undefined).
 
 %%
@@ -346,57 +374,44 @@ dist_cntrlr_setup_loop(Pid, TickHandler, Sup) ->
     receive
         {amqp_closed, Pid} ->
             exit(connection_closed);
-
         {Ref, From, {supervisor, SupervisorPid}} ->
             Res = link(SupervisorPid),
             From ! {Ref, Res},
             dist_cntrlr_setup_loop(Pid, TickHandler, SupervisorPid);
-
         {Ref, From, tick_handler} ->
             From ! {Ref, TickHandler},
             dist_cntrlr_setup_loop(Pid, TickHandler, Sup);
-
         {Ref, From, pid} ->
             From ! {Ref, Pid},
             dist_cntrlr_setup_loop(Pid, TickHandler, Sup);
-
         {Ref, From, {send, Packet}} ->
             Res = amqp_dist_node:send(Pid, list_to_binary(Packet)),
             From ! {Ref, Res},
             dist_cntrlr_setup_loop(Pid, TickHandler, Sup);
-
         {Ref, From, {recv, Length, Timeout}} ->
             Res = amqp_dist_node:recv(Pid, Length, Timeout),
             From ! {Ref, Res},
             dist_cntrlr_setup_loop(Pid, TickHandler, Sup);
-
         {Ref, From, getll} ->
             From ! {Ref, {ok, self()}},
             dist_cntrlr_setup_loop(Pid, TickHandler, Sup);
-
         {Ref, From, {address, Node}} ->
             ID = get_remote_id(Pid, Node),
             From ! {Ref, {ok, ID}},
             dist_cntrlr_setup_loop(Pid, TickHandler, Sup);
-
         {Ref, From, pre_nodeup} ->
-
             %% amqp_dist_node must agree
             ok = amqp_dist_node:pre_nodeup(Pid),
 
             From ! {Ref, ok},
             dist_cntrlr_setup_loop(Pid, TickHandler, Sup);
-
         {Ref, From, post_nodeup} ->
-
             %% amqp_dist_node must agree
             ok = amqp_dist_node:post_nodeup(Pid),
 
             From ! {Ref, ok},
             dist_cntrlr_setup_loop(Pid, TickHandler, Sup);
-
         {Ref, From, {handshake_complete, Node, DHandle}} ->
-
             %% amqp_dist_node must agree
             ok = amqp_dist_node:handshake_complete(Pid, Node),
 
@@ -407,9 +422,12 @@ dist_cntrlr_setup_loop(Pid, TickHandler, Sup) ->
             %% is not necessary, but it enables parallel execution
             %% of independent work loads at the same time as it
             %% simplifies the the implementation...
-            InputHandler = spawn_opt(?MODULE, dist_cntrlr_input_setup,
-                                     [DHandle, Pid, Sup],
-                                     [link] ++ ?DIST_CNTRL_COMMON_SPAWN_OPTS),
+            InputHandler = spawn_opt(
+                ?MODULE,
+                dist_cntrlr_input_setup,
+                [DHandle, Pid, Sup],
+                [link] ++ ?DIST_CNTRL_COMMON_SPAWN_OPTS
+            ),
 
             ok = erlang:dist_ctrl_input_handler(DHandle, InputHandler),
 
@@ -437,18 +455,17 @@ dist_cntrlr_input_loop(DHandle, Pid) ->
         {amqp_closed, Pid} ->
             %% Connection to remote node terminated...
             exit(connection_closed);
-
         {tcp_closed, Pid} ->
             %% Connection to remote node terminated...
             exit(connection_closed);
-        
         {data, Pid, Data} ->
             %% Incoming data from remote node...
-            try erlang:dist_ctrl_put_data(DHandle, Data)
-            catch _ : _ -> death_row()
+            try
+                erlang:dist_ctrl_put_data(DHandle, Data)
+            catch
+                _:_ -> death_row()
             end,
             dist_cntrlr_input_loop(DHandle, Pid);
-
         _Other ->
             %% Ignore...
             dist_cntrlr_input_loop(DHandle, Pid)
@@ -463,16 +480,16 @@ dist_cntrlr_send_data(DHandle, Pid) ->
             dist_cntrlr_send_data(DHandle, Pid)
     end.
 
-
 dist_cntrlr_output_loop(DHandle, Pid) ->
     receive
         dist_data ->
             %% Outgoing data from this node...
-            try dist_cntrlr_send_data(DHandle, Pid)
-            catch _ : _ -> death_row()
+            try
+                dist_cntrlr_send_data(DHandle, Pid)
+            catch
+                _:_ -> death_row()
             end,
             dist_cntrlr_output_loop(DHandle, Pid);
-
         {send, From, Ref, Data} ->
             %% This is for testing only!
             %%
@@ -481,11 +498,9 @@ dist_cntrlr_output_loop(DHandle, Pid) ->
             amqp_dist_node:send(Pid, Data),
             From ! {Ref, ok},
             dist_cntrlr_output_loop(DHandle, Pid);
-
         _Other ->
             %% Drop garbage message...
             dist_cntrlr_output_loop(DHandle, Pid)
-
     end.
 
 death_row() ->
@@ -507,4 +522,6 @@ death_row(Reason) ->
     %% teardown. We however limit the wait to 5 seconds
     %% and bring down the connection ourselves if not
     %% terminated...
-    receive after 5000 -> exit(Reason) end.
+    receive
+    after 5000 -> exit(Reason)
+    end.

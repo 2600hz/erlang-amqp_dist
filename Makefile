@@ -1,7 +1,13 @@
-REBAR = ./rebar3
+REBAR = $(shell which rebar3)
 
-all:
-	@$(REBAR) $(MAKECMDGOALS)
+compile:
+	$(REBAR) compile
 
-%:
-	@$(REBAR) $(MAKECMDGOALS)
+dialyzer:
+	$(REBAR) dialyzer
+
+clean:
+	$(REBAR) clean
+
+fmt:
+	$(REBAR) fmt -w
