@@ -4,7 +4,7 @@
 #+options: inline:t num:t p:nil pri:nil prop:nil stat:t tags:t
 #+options: tasks:t tex:t timestamp:t title:t toc:t todo:t |:t
 #+title: CodeBEAM 2026: DistErl over AMQP
-#+date: 2026-03-22
+#+date: 2026-03-23
 #+author: James Aimonetti
 #+email: james@jamesaimonetti.com
 #+language: en
